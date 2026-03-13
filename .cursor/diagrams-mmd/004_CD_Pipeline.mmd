@@ -1,0 +1,92 @@
+%% File: .cursor/diagrams/004_CD_Pipeline.mmd
+%% Title: Continuous Deployment Pipeline -- Deep Dive
+%% Pattern: Pipeline with Infrastructure as Code orchestration
+%% Scope: Terraform provisioning, Ansible configuration, K8s deployment
+%% Ref: jenkins/Jenkinsfile.cd
+
+flowchart TD
+    Trigger["Manual Trigger\nor Merge to main"]
+
+    subgraph Preflight ["Stage: Preflight Checks"]
+        ValidateTF["terraform validate"]
+        ValidateK8s["kubectl --dry-run\n(manifests)"]
+        CheckVersion["Read VERSION\nfile"]
+        PreflightResult{"All checks\npassed?"}
+        Abort["Abort Pipeline"]
+    end
+
+    subgraph TerraformStage ["Stage: Terraform"]
+        TFInit["terraform init\n(-backend-config)"]
+        TFPlan["terraform plan\n(-out=tfplan)"]
+        PlanReview{"Manual\napproval?"}
+        TFApply["terraform apply\ntfplan"]
+        TFOutput["terraform output\n(EKS endpoint, SG IDs)"]
+        TFReject["Pipeline\nAborted"]
+    end
+
+    subgraph AnsibleStage ["Stage: Ansible Configure"]
+        UpdateKubeconfig["aws eks\nupdate-kubeconfig"]
+        RunConfigPlaybook["ansible-playbook\nconfigure-cluster.yml"]
+        InstallHelm["Install Helm\ncharts"]
+        DeployJenkins["Deploy Jenkins\nvia Helm"]
+        ApplyRBAC["Apply RBAC\npolicies"]
+        ConfigCreds["Configure\nJenkins credentials"]
+    end
+
+    subgraph DeployStage ["Stage: Kubernetes Deploy"]
+        ApplyNamespace["kubectl apply\nnamespace.yaml"]
+        ApplyConfigMap["kubectl apply\nconfigmap.yaml"]
+        ApplyStatefulSet["kubectl apply\nstatefulset.yaml"]
+        ApplyService["kubectl apply\nservice.yaml"]
+        WaitRollout["kubectl rollout status\nstatefulset/engine"]
+    end
+
+    subgraph VerifyStage ["Stage: Verify"]
+        SmokeTest["curl engine\nhealth endpoint"]
+        PodStatus["kubectl get pods\n(check Running)"]
+        LogCheck["kubectl logs\n(check for errors)"]
+        VerifyResult{"Deployment\nhealthy?"}
+        Rollback["kubectl rollout undo\nstatefulset/engine"]
+        DeploySuccess["Deployment\nSuccessful"]
+    end
+
+    subgraph NotifyStage ["Stage: Notify"]
+        SuccessNotif["Slack: Deploy\nSucceeded"]
+        FailNotif["Slack: Deploy\nFailed + Rollback"]
+    end
+
+    Trigger --> Preflight
+    ValidateTF --> ValidateK8s
+    ValidateK8s --> CheckVersion
+    CheckVersion --> PreflightResult
+    PreflightResult -->|"No"| Abort
+    PreflightResult -->|"Yes"| TerraformStage
+
+    TFInit --> TFPlan
+    TFPlan --> PlanReview
+    PlanReview -->|"Rejected"| TFReject
+    PlanReview -->|"Approved"| TFApply
+    TFApply --> TFOutput
+
+    TFOutput --> AnsibleStage
+    UpdateKubeconfig --> RunConfigPlaybook
+    RunConfigPlaybook --> InstallHelm
+    InstallHelm --> DeployJenkins
+    DeployJenkins --> ApplyRBAC
+    ApplyRBAC --> ConfigCreds
+
+    ConfigCreds --> DeployStage
+    ApplyNamespace --> ApplyConfigMap
+    ApplyConfigMap --> ApplyStatefulSet
+    ApplyStatefulSet --> ApplyService
+    ApplyService --> WaitRollout
+
+    WaitRollout --> VerifyStage
+    SmokeTest --> PodStatus
+    PodStatus --> LogCheck
+    LogCheck --> VerifyResult
+    VerifyResult -->|"No"| Rollback
+    VerifyResult -->|"Yes"| DeploySuccess
+
+    Rollback --> FailNotif
+    DeploySuccess --> SuccessNotif

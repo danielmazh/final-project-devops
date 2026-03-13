@@ -1,0 +1,61 @@
+%% File: .cursor/diagrams/006_Kubernetes_Deployment.mmd
+%% Title: Kubernetes Resource Topology -- Deep Dive
+%% Pattern: StatefulSet deployment with supporting resources
+%% Scope: Namespaces, StatefulSet, Services, ConfigMap, PVC, probes
+%% Ref: k8s/ manifests
+
+flowchart TB
+    subgraph EKSCluster ["EKS Cluster"]
+
+        subgraph NSEngine ["Namespace: seyoawe"]
+            subgraph EngineStatefulSet ["StatefulSet: seyoawe-engine"]
+                Pod0["Pod: seyoawe-engine-0"]
+                Pod1["Pod: seyoawe-engine-1"]
+
+                subgraph PodDetail ["Pod Internals (each)"]
+                    EngineContainer["Container: engine\nImage: seyoawe-engine:v\nPorts: 8080, 8081"]
+                    LivenessProbe["Liveness Probe\nHTTP GET /health\nport 8080"]
+                    ReadinessProbe["Readiness Probe\nHTTP GET /health\nport 8080"]
+                    VolMountLogs["Volume Mount\n/app/logs"]
+                    VolMountConfig["Volume Mount\n/app/configuration"]
+                end
+            end
+
+            ConfigMap["ConfigMap:\nseyoawe-config\n(config.yaml)"]
+            EngineService["Service: seyoawe-engine\nClusterIP\nPorts: 8080, 8081"]
+
+            subgraph PVCs ["Persistent Volume Claims"]
+                PVC0["PVC: data-seyoawe-engine-0\n(logs, lifetimes)"]
+                PVC1["PVC: data-seyoawe-engine-1\n(logs, lifetimes)"]
+            end
+        end
+
+        subgraph NSJenkins ["Namespace: jenkins"]
+            JenkinsCtrl["StatefulSet:\njenkins-controller"]
+            JenkinsAgent["Pod: jenkins-agent\n(dynamic, ephemeral)"]
+            JenkinsSvc["Service: jenkins\nClusterIP: 8080"]
+            JenkinsPVC["PVC: jenkins-home"]
+        end
+
+        subgraph NSMonitoring ["Namespace: monitoring"]
+            PromSS["StatefulSet:\nprometheus-server"]
+            GrafanaDeploy["Deployment:\ngrafana"]
+            AlertManager["Deployment:\nalertmanager"]
+            ServiceMonitor["ServiceMonitor:\nseyoawe-engine"]
+            PromSvc["Service:\nprometheus: 9090"]
+            GrafanaSvc["Service:\ngrafana: 3000"]
+        end
+    end
+
+    ConfigMap -->|"mount"| VolMountConfig
+    PVC0 -->|"bind"| Pod0
+    PVC1 -->|"bind"| Pod1
+    EngineService -->|"route to"| Pod0
+    EngineService -->|"route to"| Pod1
+
+    JenkinsCtrl --> JenkinsAgent
+    JenkinsPVC -->|"bind"| JenkinsCtrl
+
+    ServiceMonitor -->|"scrape :8080"| EngineService
+    PromSS --> GrafanaDeploy
+    PromSS --> AlertManager

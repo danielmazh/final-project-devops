@@ -1,0 +1,72 @@
+%% File: .cursor/diagrams/008_Observability_Stack.mmd
+%% Title: Observability Stack -- Deep Dive
+%% Pattern: Pull-based metrics (Prometheus) + Dashboard visualization (Grafana)
+%% Scope: Prometheus, Grafana, ServiceMonitors, alert rules, dashboards
+%% Ref: monitoring/ directory, kube-prometheus-stack Helm chart
+
+flowchart TB
+    subgraph DataSources ["Metrics Sources"]
+        EngineMetrics["Engine Pod\n:8080/metrics\n(or blackbox)"]
+        NodeExporter["Node Exporter\n(per worker node)"]
+        KubeStateMetrics["kube-state-metrics\n(K8s object state)"]
+        JenkinsMetrics["Jenkins\n/prometheus endpoint"]
+        CAdvisor["cAdvisor\n(container metrics)"]
+    end
+
+    subgraph PromStack ["Prometheus Stack (kube-prometheus-stack Helm)"]
+        ServiceMonitorEngine["ServiceMonitor:\nseyoawe-engine"]
+        ServiceMonitorJenkins["ServiceMonitor:\njenkins"]
+        PromServer["Prometheus Server\n(scrape + store)"]
+        PromRules["PrometheusRule:\nalert definitions"]
+        AlertMgr["Alertmanager\n(routing + dedup)"]
+    end
+
+    subgraph AlertRules ["Alert Rules"]
+        RulePodRestart["Alert: PodRestart\nHigh restart count"]
+        RuleHighLatency["Alert: HighLatency\nP99 above threshold"]
+        Rule5xx["Alert: Http5xxRate\nError rate above 5%"]
+        RuleNodeDisk["Alert: NodeDiskFull\nDisk usage above 85%"]
+        RulePodOOM["Alert: OOMKilled\nContainer OOM events"]
+    end
+
+    subgraph Notifications ["Alert Notifications"]
+        SlackChannel["Slack Channel\n(alerts)"]
+        EmailRecipient["Email\n(on-call)"]
+    end
+
+    subgraph GrafanaStack ["Grafana"]
+        GrafanaServer["Grafana Server\n:3000"]
+
+        subgraph Dashboards ["Dashboards"]
+            DashEngine["Engine Dashboard\n(uptime, request rate,\nerror rate, latency)"]
+            DashK8s["K8s Cluster Dashboard\n(CPU, memory, pods,\nnode status)"]
+            DashJenkins["Jenkins Dashboard\n(build success/fail,\nduration, queue)"]
+        end
+
+        PromDataSource["Datasource:\nPrometheus"]
+    end
+
+    EngineMetrics --> ServiceMonitorEngine
+    JenkinsMetrics --> ServiceMonitorJenkins
+    NodeExporter --> PromServer
+    KubeStateMetrics --> PromServer
+    CAdvisor --> PromServer
+    ServiceMonitorEngine --> PromServer
+    ServiceMonitorJenkins --> PromServer
+
+    PromServer --> PromRules
+    PromRules --> RulePodRestart
+    PromRules --> RuleHighLatency
+    PromRules --> Rule5xx
+    PromRules --> RuleNodeDisk
+    PromRules --> RulePodOOM
+
+    PromRules --> AlertMgr
+    AlertMgr --> SlackChannel
+    AlertMgr --> EmailRecipient
+
+    PromServer --> PromDataSource
+    PromDataSource --> GrafanaServer
+    GrafanaServer --> DashEngine
+    GrafanaServer --> DashK8s
+    GrafanaServer --> DashJenkins

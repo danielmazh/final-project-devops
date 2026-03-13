@@ -1,0 +1,76 @@
+%% File: .cursor/diagrams/009_Repository_Data_Flow.mmd
+%% Title: Two-Repository Strategy and Data Flow -- Deep Dive
+%% Pattern: Separation of Concerns (Application vs Infrastructure)
+%% Scope: Repo boundaries, artifact flow, build context assembly
+%% Ref: Plan section "Repository Structure"
+
+flowchart LR
+    subgraph AppRepo ["seyoawe-community (App Repo)"]
+        direction TB
+        EngineBin["seyoawe.linux\n(engine binary)"]
+        CLICode["sawectl/\n(Python CLI)"]
+        ModulesDir["modules/\n(8 Python modules)"]
+        ConfigDir["configuration/\nconfig.yaml"]
+        WorkflowsDir["workflows/\n(sample workflows)"]
+        SchemasDir["sawectl/*.schema.json"]
+        CLIReqs["sawectl/requirements.txt"]
+    end
+
+    subgraph InfraRepo ["final-project-devops (Infra Repo)"]
+        direction TB
+        EngineDockerfile["docker/engine/\nDockerfile"]
+        CLIDockerfile["docker/cli/\nDockerfile"]
+        JenkinsFiles["jenkins/\nJenkinsfile.*"]
+        K8sDir["k8s/\nmanifests"]
+        TFDir["terraform/\nmodules"]
+        AnsibleDir["ansible/\nplaybooks"]
+        MonDir["monitoring/\nhelm values"]
+        VersionFile["VERSION"]
+        TestsDir["tests/\nintegration + unit"]
+        ScriptsDir["scripts/\nversion.sh"]
+    end
+
+    subgraph BuildContext ["Docker Build Context Assembly"]
+        direction TB
+        EngineCtx["Engine Context:\nseyoawe.linux +\nmodules/ + configuration/ +\nworkflows/ + Dockerfile"]
+        CLICtx["CLI Context:\nsawectl/ +\nrequirements.txt +\nDockerfile"]
+    end
+
+    subgraph Artifacts ["Published Artifacts"]
+        direction TB
+        EngineImage["Docker Hub:\nseyoawe-engine:v1.2.0"]
+        CLIImage["Docker Hub:\nseyoawe-cli:v1.2.0"]
+        CLIWheel["PyPI/Archive:\nsawectl-1.2.0.whl"]
+        GitTags["Git Tags:\nv1.2.0"]
+    end
+
+    subgraph Deployment ["Deployed to EKS"]
+        direction TB
+        RunningEngine["StatefulSet:\nseyoawe-engine"]
+        RunningJenkins["Jenkins:\ncontroller + agents"]
+        RunningMon["Monitoring:\nPrometheus + Grafana"]
+    end
+
+    EngineBin --> EngineCtx
+    ModulesDir --> EngineCtx
+    ConfigDir --> EngineCtx
+    WorkflowsDir --> EngineCtx
+    EngineDockerfile --> EngineCtx
+
+    CLICode --> CLICtx
+    CLIReqs --> CLICtx
+    CLIDockerfile --> CLICtx
+
+    EngineCtx --> EngineImage
+    CLICtx --> CLIImage
+    CLICtx --> CLIWheel
+
+    VersionFile --> EngineImage
+    VersionFile --> CLIImage
+    VersionFile --> GitTags
+
+    EngineImage --> RunningEngine
+    K8sDir --> RunningEngine
+    TFDir --> RunningEngine
+    AnsibleDir --> RunningJenkins
+    MonDir --> RunningMon

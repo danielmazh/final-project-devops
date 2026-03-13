@@ -1,0 +1,82 @@
+%% File: .cursor/diagrams/003_CI_Pipeline_CLI.mmd
+%% Title: CLI CI Pipeline -- Deep Dive
+%% Pattern: Pipeline / Chain of Responsibility
+%% Scope: Jenkins pipeline stages for sawectl linting, testing, packaging, and publishing
+%% Ref: jenkins/Jenkinsfile.cli-ci
+
+flowchart TD
+    Trigger["GitHub Webhook\n(push to main)"]
+    ChangeDetect["Change Detection\n(scripts/version.sh)"]
+    CLIChanged{"CLI files\nchanged?"}
+    Skip["Skip Pipeline\n(no CLI changes)"]
+
+    subgraph Checkout ["Stage: Checkout"]
+        CloneApp["git clone\nseyoawe-community"]
+        CloneInfra["git clone\nfinal-project-devops"]
+    end
+
+    subgraph Lint ["Stage: Lint"]
+        InstallLint["pip install flake8"]
+        RunFlake8["flake8 sawectl/\n--max-line-length=120"]
+        LintResult{"Lint\npassed?"}
+        LintFail["Fail Pipeline"]
+    end
+
+    subgraph UnitTest ["Stage: Unit Tests"]
+        InstallDeps["pip install -r\nrequirements.txt"]
+        InstallTest["pip install pytest\npytest-cov"]
+        RunPytest["pytest tests/cli/\n--cov=sawectl\n--junitxml=results.xml"]
+        CoverageReport["Generate\ncoverage report"]
+        TestResult{"Tests\npassed?"}
+        TestFail["Fail Pipeline"]
+    end
+
+    subgraph Package ["Stage: Package"]
+        ReadVersion["Read VERSION file"]
+        InjectVersion["Inject version\ninto sawectl.py"]
+        BuildWheel["python setup.py\nbdist_wheel"]
+        BuildBinary["PyInstaller\n(optional standalone)"]
+    end
+
+    subgraph DockerBuild ["Stage: Docker Build"]
+        BuildImage["docker build\n-f docker/cli/Dockerfile"]
+        TagImage["Tag:\nnamespace/seyoawe-cli:version"]
+    end
+
+    subgraph Publish ["Stage: Publish"]
+        DockerLogin["docker login"]
+        PushImage["docker push\n(all tags)"]
+        ArchiveArtifacts["Archive: wheel,\ncoverage, test results"]
+        GitTag["git tag\ncli-v{version}"]
+    end
+
+    Trigger --> ChangeDetect
+    ChangeDetect --> CLIChanged
+    CLIChanged -->|"No"| Skip
+    CLIChanged -->|"Yes"| Checkout
+    CloneApp --> CloneInfra
+
+    CloneInfra --> Lint
+    InstallLint --> RunFlake8
+    RunFlake8 --> LintResult
+    LintResult -->|"No"| LintFail
+    LintResult -->|"Yes"| UnitTest
+
+    InstallDeps --> InstallTest
+    InstallTest --> RunPytest
+    RunPytest --> CoverageReport
+    CoverageReport --> TestResult
+    TestResult -->|"No"| TestFail
+    TestResult -->|"Yes"| Package
+
+    ReadVersion --> InjectVersion
+    InjectVersion --> BuildWheel
+    BuildWheel --> BuildBinary
+
+    BuildBinary --> DockerBuild
+    BuildImage --> TagImage
+
+    TagImage --> Publish
+    DockerLogin --> PushImage
+    PushImage --> ArchiveArtifacts
+    ArchiveArtifacts --> GitTag

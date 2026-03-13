@@ -1,0 +1,76 @@
+%% File: .cursor/diagrams/005_AWS_Infrastructure.mmd
+%% Title: AWS Infrastructure Layout -- Deep Dive
+%% Pattern: Multi-AZ VPC with managed Kubernetes (EKS)
+%% Scope: VPC, subnets, EKS, node groups, IAM, S3, security groups
+%% Ref: terraform/ module structure
+
+flowchart TB
+    Internet["Internet"]
+
+    subgraph AWSAccount ["AWS Account"]
+        subgraph VPC ["VPC: 10.0.0.0/16"]
+            IGW["Internet\nGateway"]
+
+            subgraph AZ1 ["Availability Zone A"]
+                PubSubA["Public Subnet\n10.0.1.0/24"]
+                PrivSubA["Private Subnet\n10.0.10.0/24"]
+                NATA["NAT Gateway A"]
+            end
+
+            subgraph AZ2 ["Availability Zone B"]
+                PubSubB["Public Subnet\n10.0.2.0/24"]
+                PrivSubB["Private Subnet\n10.0.20.0/24"]
+                NATB["NAT Gateway B"]
+            end
+
+            subgraph EKSCluster ["EKS Cluster"]
+                ControlPlane["EKS Control Plane\n(AWS Managed)"]
+
+                subgraph NodeGroup ["Managed Node Group"]
+                    Node1["Worker Node 1\nt3.medium"]
+                    Node2["Worker Node 2\nt3.medium"]
+                    Node3["Worker Node 3\nt3.medium"]
+                end
+            end
+
+            subgraph SecurityGroups ["Security Groups"]
+                SGCluster["SG: EKS Cluster\n(443 inbound)"]
+                SGNodes["SG: Worker Nodes\n(all from cluster SG)"]
+                SGEngine["SG: Engine\n(8080, 8081)"]
+            end
+        end
+
+        subgraph GlobalServices ["Global / Regional Services"]
+            S3State["S3 Bucket\n(Terraform State)"]
+            DynamoDB["DynamoDB\n(State Lock)"]
+            ECR["ECR\n(optional registry)"]
+        end
+
+        subgraph IAMLayer ["IAM"]
+            ClusterRole["EKS Cluster\nRole"]
+            NodeRole["EC2 Node\nInstance Role"]
+            JenkinsSA["Jenkins\nService Account\n(IRSA)"]
+            TerraformUser["Terraform\nIAM User"]
+        end
+    end
+
+    Internet --> IGW
+    IGW --> PubSubA
+    IGW --> PubSubB
+    PubSubA --> NATA
+    PubSubB --> NATB
+    NATA --> PrivSubA
+    NATB --> PrivSubB
+
+    PrivSubA --> Node1
+    PrivSubA --> Node2
+    PrivSubB --> Node3
+
+    ControlPlane --> NodeGroup
+    ClusterRole --> ControlPlane
+    NodeRole --> NodeGroup
+    JenkinsSA --> NodeGroup
+
+    TerraformUser --> S3State
+    TerraformUser --> DynamoDB
+    TerraformUser --> EKSCluster

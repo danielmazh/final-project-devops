@@ -1,0 +1,83 @@
+%% File: .cursor/diagrams/010_Network_Security.mmd
+%% Title: Network Topology and Security Boundaries -- Deep Dive
+%% Pattern: Defense in Depth / Zero Trust Network Segmentation
+%% Scope: VPC routing, subnet isolation, security groups, K8s network policies
+%% Ref: terraform/modules/vpc/, terraform/modules/eks/
+
+flowchart TB
+    Internet["Internet\n(0.0.0.0/0)"]
+
+    subgraph VPC ["VPC: 10.0.0.0/16"]
+        IGW["Internet Gateway"]
+
+        subgraph PublicTier ["Public Tier"]
+            ALB["Application\nLoad Balancer\n(optional)"]
+            NATA["NAT Gateway A\n(10.0.1.x)"]
+            NATB["NAT Gateway B\n(10.0.2.x)"]
+        end
+
+        subgraph PrivateTier ["Private Tier (EKS Workloads)"]
+            subgraph SGCluster ["SG: eks-cluster"]
+                EKSEndpoint["EKS API\nEndpoint\n(:443)"]
+            end
+
+            subgraph SGNodes ["SG: eks-nodes"]
+                subgraph Node1 ["Worker Node 1"]
+                    EnginePod0["Engine Pod 0\n(:8080, :8081)"]
+                    JenkinsPod["Jenkins\nController\n(:8080, :50000)"]
+                end
+
+                subgraph Node2 ["Worker Node 2"]
+                    EnginePod1["Engine Pod 1\n(:8080, :8081)"]
+                    PromPod["Prometheus\n(:9090)"]
+                end
+
+                subgraph Node3 ["Worker Node 3"]
+                    GrafanaPod["Grafana\n(:3000)"]
+                    AgentPod["Jenkins\nAgent\n(ephemeral)"]
+                end
+            end
+        end
+
+        subgraph RouteTables ["Route Tables"]
+            PubRT["Public RT:\n0.0.0.0/0 -> IGW"]
+            PrivRTA["Private RT-A:\n0.0.0.0/0 -> NAT-A"]
+            PrivRTB["Private RT-B:\n0.0.0.0/0 -> NAT-B"]
+        end
+    end
+
+    subgraph ExternalServices ["External Services"]
+        DockerHub["Docker Hub\n(pull/push images)"]
+        GitHub["GitHub\n(webhook + clone)"]
+        S3["S3\n(TF state)"]
+    end
+
+    subgraph K8sNetPolicies ["Kubernetes Network Policies"]
+        PolicyEngine["NetworkPolicy:\nengine-ingress\nAllow: jenkins ns,\nmonitoring ns"]
+        PolicyJenkins["NetworkPolicy:\njenkins-ingress\nAllow: github webhook"]
+        PolicyMon["NetworkPolicy:\nmonitoring-ingress\nAllow: all ns\n(scrape)"]
+    end
+
+    Internet --> IGW
+    IGW --> ALB
+    ALB --> EnginePod0
+    ALB --> EnginePod1
+
+    IGW --> NATA
+    IGW --> NATB
+    NATA --> Node1
+    NATA --> Node2
+    NATB --> Node3
+
+    Node1 --> NATA
+    Node2 --> NATA
+    Node3 --> NATB
+    NATA --> DockerHub
+    NATB --> DockerHub
+    NATA --> GitHub
+    NATA --> S3
+
+    PolicyEngine --> EnginePod0
+    PolicyEngine --> EnginePod1
+    PolicyJenkins --> JenkinsPod
+    PolicyMon --> PromPod

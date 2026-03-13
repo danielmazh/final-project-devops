@@ -1,0 +1,77 @@
+%% File: .cursor/diagrams/002_CI_Pipeline_Engine.mmd
+%% Title: Engine CI Pipeline -- Deep Dive
+%% Pattern: Pipeline / Chain of Responsibility
+%% Scope: Jenkins pipeline stages for seyoawe engine containerization and publishing
+%% Ref: .instructions/ci_cd_jenkins.png, jenkins/Jenkinsfile.engine-ci
+
+flowchart TD
+    Trigger["GitHub Webhook\n(push to main)"]
+    ChangeDetect["Change Detection\n(scripts/version.sh)"]
+    EngineChanged{"Engine files\nchanged?"}
+    Skip["Skip Pipeline\n(no engine changes)"]
+
+    subgraph Checkout ["Stage: Checkout"]
+        CloneApp["git clone\nseyoawe-community"]
+        CloneInfra["git clone\nfinal-project-devops"]
+    end
+
+    subgraph IntegrationTest ["Stage: Integration Tests"]
+        BuildTemp["docker build\n(temp engine image)"]
+        RunContainer["docker run\n(engine container)"]
+        WaitHealth["Wait for\nhealth endpoint"]
+        RunTests["pytest\ntest_engine_api.py"]
+        TestHealth["Test: GET /health"]
+        TestAdhoc["Test: POST /api/adhoc"]
+        TestModules["Test: Module endpoints"]
+        Teardown["docker stop + rm"]
+    end
+
+    subgraph DockerBuild ["Stage: Docker Build"]
+        ReadVersion["Read VERSION file"]
+        BuildFinal["docker build\n--build-arg VERSION"]
+        TagImage["Tag: namespace/seyoawe-engine\n:version, :latest"]
+    end
+
+    subgraph Publish ["Stage: Publish"]
+        DockerLogin["docker login\n(Docker Hub creds)"]
+        PushImage["docker push\n(all tags)"]
+        GitTag["git tag v{version}"]
+    end
+
+    subgraph Notify ["Stage: Notification"]
+        Success["Pipeline Success"]
+        Failure["Pipeline Failure"]
+        EmailNotif["Email\nNotification"]
+        SlackNotif["Slack\nNotification"]
+    end
+
+    Trigger --> ChangeDetect
+    ChangeDetect --> EngineChanged
+    EngineChanged -->|"No"| Skip
+    EngineChanged -->|"Yes"| Checkout
+
+    CloneApp --> CloneInfra
+    CloneInfra --> IntegrationTest
+
+    BuildTemp --> RunContainer
+    RunContainer --> WaitHealth
+    WaitHealth --> RunTests
+    RunTests --> TestHealth
+    RunTests --> TestAdhoc
+    RunTests --> TestModules
+    TestHealth --> Teardown
+    TestAdhoc --> Teardown
+    TestModules --> Teardown
+
+    Teardown --> DockerBuild
+    ReadVersion --> BuildFinal
+    BuildFinal --> TagImage
+
+    TagImage --> Publish
+    DockerLogin --> PushImage
+    PushImage --> GitTag
+
+    GitTag --> Success
+    Teardown -->|"tests fail"| Failure
+    Failure --> EmailNotif
+    Failure --> SlackNotif

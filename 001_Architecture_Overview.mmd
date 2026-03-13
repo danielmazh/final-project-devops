@@ -1,0 +1,74 @@
+%% File: .cursor/diagrams/001_Architecture_Overview.mmd
+%% Title: High-Level System Architecture Overview
+%% Pattern: Hub-and-Spoke / Platform Architecture
+%% Scope: All system components, external services, and data flows
+
+flowchart TB
+    subgraph SourceControl ["Source Control (GitHub)"]
+        AppRepo["seyoawe-community\n(Application Repo)"]
+        InfraRepo["final-project-devops\n(Infrastructure Repo)"]
+    end
+
+    subgraph CICD ["CI/CD Layer (Jenkins on EKS)"]
+        JenkinsCtrl["Jenkins Controller"]
+        EngineCI["Engine CI\nPipeline"]
+        CLICI["CLI CI\nPipeline"]
+        CDPipeline["CD Pipeline"]
+    end
+
+    subgraph Registry ["Container Registry"]
+        DockerHub["Docker Hub"]
+        EngineImage["seyoawe-engine\nimage"]
+        CLIImage["seyoawe-cli\nimage"]
+    end
+
+    subgraph IaC ["Infrastructure as Code"]
+        Terraform["Terraform\n(AWS Provisioning)"]
+        Ansible["Ansible\n(Config Management)"]
+    end
+
+    subgraph AWSCloud ["AWS Cloud"]
+        subgraph VPC ["VPC (10.0.0.0/16)"]
+            subgraph EKSCluster ["EKS Cluster"]
+                EngineStatefulSet["Engine\nStatefulSet"]
+                JenkinsPod["Jenkins\nPods"]
+                PrometheusStack["Prometheus\nStack"]
+                GrafanaPod["Grafana"]
+            end
+        end
+        S3["S3\n(TF State)"]
+        IAM["IAM\nRoles"]
+    end
+
+    subgraph Observability ["Observability"]
+        Metrics["Metrics\nCollection"]
+        Dashboards["Grafana\nDashboards"]
+        Alerts["Alert\nRules"]
+    end
+
+    AppRepo -->|"webhook"| JenkinsCtrl
+    InfraRepo -->|"webhook"| JenkinsCtrl
+    JenkinsCtrl --> EngineCI
+    JenkinsCtrl --> CLICI
+    JenkinsCtrl --> CDPipeline
+
+    EngineCI -->|"build + push"| EngineImage
+    CLICI -->|"build + push"| CLIImage
+    EngineImage --> DockerHub
+    CLIImage --> DockerHub
+
+    CDPipeline --> Terraform
+    CDPipeline --> Ansible
+    Terraform -->|"provision"| VPC
+    Terraform -->|"state"| S3
+    Terraform -->|"create"| IAM
+    Ansible -->|"configure"| EKSCluster
+
+    DockerHub -->|"pull"| EngineStatefulSet
+
+    EngineStatefulSet --> Metrics
+    JenkinsPod --> Metrics
+    Metrics --> PrometheusStack
+    PrometheusStack --> GrafanaPod
+    GrafanaPod --> Dashboards
+    PrometheusStack --> Alerts

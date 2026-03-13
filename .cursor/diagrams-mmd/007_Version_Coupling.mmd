@@ -1,0 +1,65 @@
+%% File: .cursor/diagrams/007_Version_Coupling.mmd
+%% Title: Version Coupling and Change Detection Logic -- Deep Dive
+%% Pattern: Single Source of Truth with selective triggering
+%% Scope: VERSION file, change detection, pipeline fan-out, tagging strategy
+%% Ref: scripts/version.sh, VERSION file
+
+flowchart TD
+    Push["git push\nto main"]
+    ReadVERSION["Read VERSION file\n(e.g., 1.2.0)"]
+    DiffCheck["git diff HEAD~1\n--name-only"]
+
+    subgraph ChangeClassification ["Change Classification"]
+        CheckEngine{"Engine files\nchanged?\n(seyoawe.linux, modules/,\nconfiguration/, docker/engine/)"}
+        CheckCLI{"CLI files\nchanged?\n(sawectl/, docker/cli/,\ntests/cli/)"}
+        CheckVersion{"VERSION file\nchanged?"}
+    end
+
+    subgraph TriggerMatrix ["Pipeline Trigger Matrix"]
+        TriggerEngine["Trigger:\nEngine CI Pipeline"]
+        TriggerCLI["Trigger:\nCLI CI Pipeline"]
+        TriggerBoth["Trigger:\nBoth Pipelines"]
+        TriggerNone["Trigger:\nNo Build Needed"]
+    end
+
+    subgraph VersionInjection ["Version Injection"]
+        DockerBuildArg["docker build\n--build-arg VERSION=1.2.0"]
+        CLIVersionPatch["sed -i VERSION\nin sawectl.py"]
+        ImageTagVersion["Image tag:\nnamespace/image:1.2.0"]
+        ImageTagLatest["Image tag:\nnamespace/image:latest"]
+    end
+
+    subgraph GitTagging ["Git Tagging"]
+        TagEngine["git tag\nengine-v1.2.0"]
+        TagCLI["git tag\ncli-v1.2.0"]
+        TagUnified["git tag\nv1.2.0"]
+        PushTags["git push --tags"]
+    end
+
+    Push --> ReadVERSION
+    Push --> DiffCheck
+    DiffCheck --> ChangeClassification
+
+    CheckEngine -->|"Yes"| TriggerEngine
+    CheckCLI -->|"Yes"| TriggerCLI
+    CheckVersion -->|"Yes"| TriggerBoth
+    CheckEngine -->|"No"| CheckCLI
+    CheckCLI -->|"No"| CheckVersion
+    CheckVersion -->|"No"| TriggerNone
+
+    TriggerEngine --> VersionInjection
+    TriggerCLI --> VersionInjection
+    TriggerBoth --> VersionInjection
+
+    ReadVERSION --> DockerBuildArg
+    ReadVERSION --> CLIVersionPatch
+    DockerBuildArg --> ImageTagVersion
+    DockerBuildArg --> ImageTagLatest
+
+    ImageTagVersion --> GitTagging
+    TriggerEngine --> TagEngine
+    TriggerCLI --> TagCLI
+    TriggerBoth --> TagUnified
+    TagEngine --> PushTags
+    TagCLI --> PushTags
+    TagUnified --> PushTags
