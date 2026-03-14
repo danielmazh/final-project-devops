@@ -1,0 +1,81 @@
+%% File: .cursor/diagrams/011_AI_RAG_Extension.mmd
+%% Title: AI RAG Extension -- Deep Dive (Bonus)
+%% Pattern: Retrieval Augmented Generation pipeline
+%% Scope: Log ingestion, document indexing, vector storage, LLM query, chatbot interface
+%% Ref: .instructions/final_project.md lines 58-60
+
+flowchart TD
+    subgraph DataIngestion ["Data Ingestion Layer"]
+        WorkflowLogs["Engine Workflow Logs\n(execution history,\nerrors, lifetimes)"]
+        EngineDocs["Engine Documentation\n(README, API docs,\nmodule specs)"]
+        WorkflowDefs["Workflow Definitions\n(YAML files from\nworkflows/)"]
+        ModuleDocs["Module Documentation\n(8 Python modules\nin modules/)"]
+    end
+
+    subgraph Processing ["Document Processing"]
+        Chunker["Text Chunker\n(split docs into\noverlapping chunks)"]
+        EmbeddingModel["Embedding Model\n(text -> vectors)"]
+        MetadataExtract["Metadata Extraction\n(source, timestamp,\nlog level, workflow ID)"]
+    end
+
+    subgraph Storage ["Vector Storage"]
+        VectorDB["Vector Database\n(e.g., ChromaDB / Pinecone\n/ pgvector)"]
+        DocIndex["Document Index\n(chunk -> source mapping)"]
+    end
+
+    subgraph QueryPipeline ["Query Pipeline"]
+        UserQuery["User Question\n(via chatbot)"]
+        QueryEmbed["Query Embedding\n(same model as ingestion)"]
+        SimilaritySearch["Similarity Search\n(top-K relevant chunks)"]
+        ContextAssembly["Context Assembly\n(retrieved chunks +\nsystem prompt)"]
+    end
+
+    subgraph LLMLayer ["LLM Layer"]
+        LLM["Large Language Model\n(OpenAI / local model)"]
+        PromptTemplate["Prompt Template\n(role: DevOps troubleshooter,\ncontext: retrieved docs)"]
+        ResponseGen["Response Generation\n(troubleshooting advice,\nroot cause analysis)"]
+    end
+
+    subgraph Interface ["Chatbot Interface"]
+        ChatUI["Chat UI\n(web-based)"]
+        APIEndpoint["REST API\nPOST /api/rag/query"]
+        ConversationHistory["Conversation\nHistory"]
+    end
+
+    subgraph EKSIntegration ["EKS Deployment"]
+        RAGDeployment["Deployment:\nrag-service"]
+        RAGService["Service:\nrag-service\nClusterIP :5000"]
+        RAGConfigMap["ConfigMap:\nrag-config\n(LLM keys, DB URI)"]
+        RAGSecret["Secret:\nrag-secrets\n(API keys)"]
+    end
+
+    WorkflowLogs --> Chunker
+    EngineDocs --> Chunker
+    WorkflowDefs --> Chunker
+    ModuleDocs --> Chunker
+
+    Chunker --> MetadataExtract
+    MetadataExtract --> EmbeddingModel
+    EmbeddingModel --> VectorDB
+    MetadataExtract --> DocIndex
+
+    UserQuery --> ChatUI
+    ChatUI --> APIEndpoint
+    APIEndpoint --> QueryEmbed
+    QueryEmbed --> SimilaritySearch
+    SimilaritySearch --> VectorDB
+    VectorDB -->|"top-K chunks"| ContextAssembly
+    DocIndex --> ContextAssembly
+
+    ContextAssembly --> PromptTemplate
+    PromptTemplate --> LLM
+    LLM --> ResponseGen
+    ResponseGen --> APIEndpoint
+    APIEndpoint --> ChatUI
+
+    ChatUI --> ConversationHistory
+    ConversationHistory --> ContextAssembly
+
+    RAGConfigMap -->|"mount"| RAGDeployment
+    RAGSecret -->|"mount"| RAGDeployment
+    RAGService -->|"route"| RAGDeployment
