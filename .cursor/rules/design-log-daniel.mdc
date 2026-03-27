@@ -1,0 +1,75 @@
+---
+description: "Strict standards for automated file placement, design logs, and sequential indexing."
+alwaysApply: false
+---
+# Jay Framework & Design Log Rules
+
+## 1. Universal File Placement & Naming
+**Strictly adhere to these directory and naming standards for ALL generated files.**
+
+### Directory Routing
+1.  **Design Logs**: Formal technical design specs and architectural decisions must go to `.cursor/design-logs/`.
+2.  **Plans**: High-level roadmaps, project phases, and strategic task lists must go to `.cursor/plans/`.
+3.  **Helper Scripts**: All scripts (Bash, Python, etc.) created for testing or automation must go to `.cursor/helpers-scripts/`.
+4.  **Logs**: Raw execution outputs, error dumps, debug streams, and session history must go to `.cursor/logs/`.
+5.  **WIP**: Drafts, scratchpads, rough notes, and miscellaneous temporary files must go to `.cursor/wip/`.
+
+### Sequential Naming Convention (`NNNN_`)
+**Mandatory for EVERY file created in ANY of the directories above.**
+1.  **Target**: Identify the specific directory from the list above.
+2.  **Scan**: Check the directory for the highest existing prefix number.
+3.  **Increment**: Add +1 to the highest number (default to `0001` if directory is empty).
+4.  **Format**: `NNNN_descriptive_name.<ext>`
+    * *Example Plan*: `.cursor/plans/0003_phase2_migration.md`
+    * *Example Log*: `.cursor/logs/0012_error_dump_auth.txt`
+    * *Example Script*: `.cursor/helpers-scripts/0005_verify_db.py`
+
+---
+
+## 2. Trigger & Automation
+**Apply this rule** whenever a significant task is requested (bug fix, feature, refactor, or architectural change).
+
+### Pre-Computation Phase
+1.  **Deep Investigation**: Before generating a log, perform a deep technical investigation of dependencies, side effects, and root causes.
+2.  **Check Existing**: Read related logs in `.cursor/design-logs/` to understand context.
+3.  **Directory Checks**: Ensure the required folders exist. Create them if missing:
+    * `.cursor/design-logs/`
+    * `.cursor/plans/`
+    * `.cursor/helpers-scripts/`
+    * `.cursor/logs/`
+    * `.cursor/wip/`
+
+### Execution Constraint
+**Do not execute code changes** until the required Design Log is generated in `.cursor/design-logs/` and saved according to the naming convention above.
+
+## 3. Design Log Content Structure
+The MD file (stored in `.cursor/design-logs/`) must follow this specific flow, using concise DevOps/Senior Engineer language:
+
+1.  **Background & Problem**: Deep technical root cause (not just symptoms).
+2.  **Questions & Answers**:
+    * List uncertainties/risks as questions.
+    * **Rule**: Keep the questions; append answers as they are discovered.
+3.  **Design & Solution**:
+    * Specific file paths, type signatures, and validation rules.
+    * **Visuals**: Use Mermaid inline diagrams (`sequenceDiagram`, `flowchart`) for complex logic.
+4.  **Implementation Plan**:
+    * Step-by-step phases.
+    * Specific terminal commands and file changes.
+5.  **Examples**: Use ✅/❌ for good/bad patterns (include realistic code).
+6.  **Trade-offs**: Explain the "why" (rationale vs alternatives).
+7.  **Verification Criteria**: Specific benchmarks or tests to confirm the fix/feature.
+
+## 4. Implementation Rules
+1.  **Tests First**: Write or update tests to match new behavior before core logic.
+2.  **Append Only**: Once implementation starts, **do not update** the initial "Design" section.
+3.  **Live Updates**: Append an "Implementation Results" section at the bottom of the log:
+    * Document execution results.
+    * Log test passing rates (X/Y).
+    * Explain any deviations from the original design.
+4.  **Language**: Be brief. Use code terminology (Contracts, ViewState).
+
+## 5. Operational Constraints
+* **Precision**: Stick to plain text. No fluff.
+* **Type Safety**: This is a TypeScript project; explicit type signatures are mandatory.
+* **Backward Compatibility**: Default to non-breaking changes.
+* **Final Summary**: After completion, provide a 1-sentence summary of the final state.
