@@ -27,3 +27,8 @@ output "vpc_id" {
   description = "VPC ID"
   value       = aws_vpc.main.id
 }
+
+output "ebs_csi_role_arn" {
+  description = "IAM role ARN for EBS CSI driver IRSA"
+  value       = aws_iam_role.ebs_csi.arn
+}

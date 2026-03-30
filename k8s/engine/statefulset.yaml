@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seyoawe-engine
+  namespace: seyoawe
+  labels:
+    app: seyoawe-engine
+    project: seyoawe
+spec:
+  serviceName: seyoawe-engine
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seyoawe-engine
+  template:
+    metadata:
+      labels:
+        app: seyoawe-engine
+        project: seyoawe
+    spec:
+      containers:
+        - name: engine
+          image: danielmazh/seyoawe-engine:0.1.1
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: dispatcher
+              containerPort: 8081
+              protocol: TCP
+
+          # Engine has no HTTP /health route — probe TCP socket availability
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          volumeMounts:
+            - name: config-vol
+              mountPath: /app/configuration/config.yaml
+              subPath: config.yaml
+            - name: data
+              mountPath: /app/data
+
+      volumes:
+        - name: config-vol
+          configMap:
+            name: seyoawe-config
+
+  # PVC created automatically per pod: data-seyoawe-engine-0
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: seyoawe-engine
+          project: seyoawe
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: gp2
+        resources:
+          requests:
+            storage: 2Gi

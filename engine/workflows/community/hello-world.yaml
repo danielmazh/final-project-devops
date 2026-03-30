@@ -4,11 +4,12 @@ workflow:
     type: ad-hoc
 
   context_variables:
-    message: "Hello from SeyoAWE running in Docker/Kubernetes!"
+    message: "Hello from SeyoAWE v0.1.1 running on EKS!"
+    environment: kubernetes
 
   steps:
     - id: log_hello
       type: action
       module: command_module
       input:
-        command: echo "{{ context.message }}"
+        command: echo "{{ context.message }} (env={{ context.environment }})"
