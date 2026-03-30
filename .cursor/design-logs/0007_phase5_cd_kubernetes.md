@@ -123,4 +123,47 @@ Jenkins (EC2) → Terraform init/plan → Approval gate → Terraform apply
 
 ## Implementation Results
 
-_(Append only after apply and pipeline execution.)_
+**When:** 2026-03-30
+
+### K8s apply results
+
+- `kubectl apply -f k8s/namespace.yaml` → namespaces configured ✅
+- `kubectl apply -f k8s/engine/` → configmap, service, statefulset created ✅
+- PVC `data-seyoawe-engine-0`: initially Pending — **EBS CSI driver not installed**
+
+### Infrastructure fix: EBS CSI driver
+
+EKS 1.32 requires the `aws-ebs-csi-driver` addon with IRSA for PVC provisioning.
+
+Actions taken:
+1. Created OIDC provider for cluster `3A6358C665850C0DACD3A9DA1F9169D1`
+2. Created IAM role `seyoawe-ebs-csi-role` with `AmazonEBSCSIDriverPolicy` and OIDC trust for `ebs-csi-controller-sa`
+3. Installed `aws-ebs-csi-driver` addon with the IRSA role
+4. Added all of the above to `terraform/main.tf` for reproducibility
+
+### Verification results (all criteria met)
+
+- [x] `kubectl get pods -n seyoawe` → `seyoawe-engine-0  1/1  Running`
+- [x] `kubectl get pvc -n seyoawe` → `data-seyoawe-engine-0  Bound  2Gi  gp2`
+- [x] Liveness + Readiness probes: `tcpSocket :8080` — passing
+- [x] `POST /api/community/hello-world` via port-forward → `{"status":"accepted"}`
+- [x] ConfigMap `seyoawe-config` mounted at `/app/configuration/config.yaml`
+
+### Engine CI full run (#14): SUCCESS ✅
+
+| Stage | Result |
+|-------|--------|
+| Change Detection | `BUILD_ENGINE=true` |
+| Lint (yamllint + shellcheck) | PASS |
+| Prepare Binary | Binary copied from `/var/jenkins_home/seyoawe.linux` |
+| Docker Build | All 17 steps — `danielmazh/seyoawe-engine:0.1.1` ✅ |
+| Docker Push | `sha256:4971d9b7...` live on DockerHub ✅ |
+| Git Tag | `engine-v0.1.1` pushed to GitHub ✅ |
+
+### Fixes applied
+
+- EBS CSI driver IRSA + OIDC → added to Terraform
+- Binary path: `/home/ec2-user/seyoawe.linux` → `/var/jenkins_home/seyoawe.linux` (container home)
+- shellcheck: copied into Jenkins container at `/usr/local/bin/shellcheck`
+- yamllint: invoked via `python3 -m yamllint` (pip binary not on PATH in container)
+- `engine/configuration/config.yaml`: trailing whitespace + missing EOF newline fixed
