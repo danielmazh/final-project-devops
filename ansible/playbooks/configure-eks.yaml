@@ -52,7 +52,7 @@
         msg: "{{ nodes_output.stdout_lines }}"
 
     - name: Create project namespaces (idempotent)
-      command: >
+      shell: >
         kubectl create namespace {{ item }}
         --dry-run=client -o yaml | kubectl apply -f -
       loop: "{{ namespaces }}"

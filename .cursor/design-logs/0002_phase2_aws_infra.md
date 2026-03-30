@@ -166,8 +166,21 @@ No OIDC provider. No IRSA. No service-account-level permissions.
    - `ansible/playbooks/configure-jenkins.yaml` — install Docker, start Jenkins container, install kubectl + aws-cli on EC2
 4. `terraform init` — **SUCCESS** (S3 backend connected, provider `aws 5.100.0` installed).
 
-### Remaining before apply
+### Apply results
 
-- Create `terraform/terraform.tfvars` from example (fill `jenkins_key_pair` and `operator_ip`)
-- Ensure the named AWS key pair exists in `us-east-1`
-- `terraform plan` → review → `terraform apply`
+- `terraform apply` completed: **27 resources added** (2026-03-30).
+- Key pair correction: initial apply used `devops-key` (no local .pem). EC2 replaced with `-replace=aws_instance.jenkins` using `devops-key-private-account` (key at `~/keys/devops-key-private-account.pem`).
+- New Jenkins IP after replacement: `44.201.6.188`.
+
+### Verification results (all criteria met)
+
+- [x] `aws sts get-caller-identity --profile seyoawe-tf` → account `632008729195`
+- [x] `aws s3 ls s3://seyoawe-tf-state-632008729195/ --profile seyoawe-tf` → OK
+- [x] `terraform init` → S3 backend connected, provider `aws 5.100.0`
+- [x] `terraform plan` → 27 resources, 0 errors
+- [x] `terraform apply` → 27 added, 0 changed, 0 destroyed
+- [x] `kubectl get nodes` → 2 × `Ready` (EKS 1.32, AL2023, t3.medium)
+- [x] Jenkins UI reachable at `http://44.201.6.188:8080`
+- [x] Ansible `install-tools.yaml` → 6/6 ok
+- [x] Ansible `configure-eks.yaml` → 6/6 ok, namespaces `seyoawe` + `monitoring` created
+- [x] Ansible `configure-jenkins.yaml` → 11/11 ok, Docker + Jenkins + kubectl + aws-cli on EC2
