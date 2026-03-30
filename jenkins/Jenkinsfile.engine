@@ -60,7 +60,7 @@ pipeline {
                     python3 -m yamllint -d relaxed engine/configuration/config.yaml
 
                     echo "=== shellcheck: run.sh ==="
-                    /usr/local/bin/shellcheck engine/run.sh 2>/dev/null || shellcheck engine/run.sh
+                    /usr/local/bin/shellcheck engine/run.sh
                 '''
             }
         }

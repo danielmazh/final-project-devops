@@ -26,12 +26,15 @@
         dest: /tmp/
         remote_src: true
 
-    - name: Install shellcheck to /usr/local/bin
+    - name: Install shellcheck to /usr/local/bin (host)
       copy:
         src: /tmp/shellcheck-stable/shellcheck
         dest: /usr/local/bin/shellcheck
         mode: "0755"
         remote_src: true
+
+    - name: Copy shellcheck into Jenkins container
+      command: docker cp /usr/local/bin/shellcheck jenkins:/usr/local/bin/shellcheck
 
     - name: Install yamllint via pip3
       pip:
