@@ -115,7 +115,8 @@ docker build -f docker/engine/Dockerfile \
 ### Docker build results
 
 - `seyoawe-cli:0.1.0` builds and runs ✅ — `--help` prints full usage, `VERSION = "0.1.0"` injected via `sed`
-- `seyoawe-engine:0.1.0` — Dockerfile written, binary guard in place; engine binary not present locally; build blocked by design until binary is obtained
+- `seyoawe-engine:0.1.0` builds and runs ✅ — binary copied from `seyoawe-community/seyoawe.linux`; added `git` to apt deps (engine bundles gitpython); health probe confirmed `healthy`
+- Health probe: `/health` route does not exist; Dockerfile HEALTHCHECK uses `curl -s http://localhost:8080/` (returns 0 on any HTTP response — confirms Flask is accepting requests)
 
 ### Deviations
 

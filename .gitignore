@@ -66,3 +66,5 @@ htmlcov/
 .coverage
 coverage.xml
 *.cover
+engine/seyoawe.linux
+engine/seyoawe.macos.arm

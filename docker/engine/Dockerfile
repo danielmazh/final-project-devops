@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.description="SeyoAWE Community workflow automatio
 WORKDIR /app
 
 # Install curl (health-check) and clean apt cache in one layer
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps required by the built-in modules
@@ -34,7 +34,10 @@ RUN mkdir -p lifetimes logs
 
 EXPOSE 8080 8081
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# Engine has no dedicated /health route — any HTTP response confirms the server is up.
+# curl without -f returns 0 on any HTTP response (including 404/405), non-zero only on
+# connection failure, so this reliably detects whether Flask is accepting requests.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -s http://localhost:8080/ > /dev/null || exit 1
 
 ENTRYPOINT ["./seyoawe.linux"]
