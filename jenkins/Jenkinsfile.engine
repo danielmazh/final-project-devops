@@ -57,10 +57,10 @@ pipeline {
                 sh '''
                     echo "=== yamllint: engine config ==="
                     pip3 install yamllint --quiet --break-system-packages 2>/dev/null || pip3 install yamllint --quiet
-                    yamllint -d relaxed engine/configuration/config.yaml
+                    python3 -m yamllint -d relaxed engine/configuration/config.yaml
 
                     echo "=== shellcheck: run.sh ==="
-                    shellcheck engine/run.sh
+                    /usr/local/bin/shellcheck engine/run.sh 2>/dev/null || shellcheck engine/run.sh
                 '''
             }
         }
