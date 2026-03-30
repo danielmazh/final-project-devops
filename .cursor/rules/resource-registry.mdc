@@ -1,0 +1,32 @@
+---
+description: "Mandatory resource registration in lifecycle.sh for every cloud resource created by this project."
+alwaysApply: true
+---
+# Resource Registry Rule
+
+## Mandatory Registration
+
+Every AWS or cloud resource created by this project — whether via Terraform, Helm, kubectl, or manual AWS CLI — **MUST** be registered in the `RESOURCE REGISTRY` block inside `lifecycle.sh` at the project root.
+
+This applies to ALL phases and ALL contributors (human or AI).
+
+## When to Update
+
+Update the registry whenever you:
+- Add a new Terraform resource (EC2, RDS, S3, IAM role, security group, etc.)
+- Add or modify a Helm release
+- Create a Kubernetes resource that provisions cloud infrastructure (PVC → EBS, Service type LoadBalancer → ELB)
+- Create any bootstrap resource via AWS CLI or Console
+
+## How to Update
+
+1. Open `lifecycle.sh` in the project root.
+2. Find the `# ── RESOURCE REGISTRY ──` block.
+3. Add a new line in the format: `#   TYPE | IDENTIFIER | MANAGED_BY`
+4. Valid `MANAGED_BY` values: `terraform`, `helm`, `kubectl`, `aws-cli`
+
+## Enforcement
+
+- Before any PR or phase merge, verify that every cloud resource in the Terraform plan / Helm release / K8s manifest has a corresponding entry in the registry.
+- `./lifecycle.sh destroy --all` must be able to remove every resource listed.
+- An unregistered resource is a billing risk and a review blocker.

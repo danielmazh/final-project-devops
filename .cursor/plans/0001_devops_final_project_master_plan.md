@@ -100,6 +100,20 @@ When an action requires human execution (AWS console, API tokens, Jenkins UI), t
 2. Provide explicit step-by-step instructions with links and expected values
 3. **WAIT** for user confirmation ("done") before proceeding
 
+### 2.5 Resource Registry & Lifecycle Management (CRITICAL)
+
+**Every cloud resource created by this project must be registered in `lifecycle.sh`.**
+
+This is a PoC environment. Forgotten resources cost real money. The following rules are non-negotiable:
+
+1. **Registration:** When adding any cloud resource (Terraform, Helm, kubectl, AWS CLI), add it to the `RESOURCE REGISTRY` block in `lifecycle.sh` at the project root. Format: `TYPE | IDENTIFIER | MANAGED_BY`.
+2. **Selective suspension:** Use `./lifecycle.sh stop <component>` to halt billing on individual services (Jenkins, EKS nodes, monitoring) without destroying the full stack.
+3. **Full teardown:** `./lifecycle.sh destroy` removes Helm releases, K8s namespaces, and Terraform-managed resources in the correct order.
+4. **Nuclear option:** `./lifecycle.sh destroy --all` also removes bootstrap resources (S3 state bucket, IAM user). This guarantees **zero residual footprint** and **zero lingering cost**.
+5. **Enforcement:** An unregistered cloud resource is a review blocker. Before merging any phase branch, verify the registry is complete.
+
+See also: `.cursor/rules/resource-registry.mdc` (always-on rule).
+
 ---
 
 ## 3. Source Application Summary
@@ -172,6 +186,7 @@ final-project-devops/
 ├── scripts/                         # Build/version helpers
 │   ├── version.sh
 │   └── change-detect.sh
+├── lifecycle.sh                     # AWS resource lifecycle manager (stop/start/destroy)
 ├── VERSION
 ├── README.md
 └── .gitignore
