@@ -128,15 +128,17 @@ pipeline {
     post {
         always {
             sh 'docker rmi ${IMAGE_NAME}:${APP_VERSION} ${IMAGE_NAME}:latest 2>/dev/null || true'
+            script {
+                if (env.BUILD_ENGINE == 'false') {
+                    echo "No engine changes detected — build stages were skipped."
+                }
+            }
         }
         success {
             echo "Engine CI complete — image: ${IMAGE_NAME}:${APP_VERSION}"
         }
         failure {
             echo "Engine CI FAILED — check logs above."
-        }
-        skipped {
-            echo "No engine changes detected — build skipped."
         }
     }
 }
