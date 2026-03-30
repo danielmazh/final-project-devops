@@ -145,7 +145,7 @@ pipeline {
             }
         }
         success {
-            echo "Engine CI complete — image: ${IMAGE_NAME}:${APP_VERSION}"
+            echo "Engine CI complete — version: ${APP_VERSION}"
         }
         failure {
             echo "Engine CI FAILED — check logs above."

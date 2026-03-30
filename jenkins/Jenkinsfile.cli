@@ -136,8 +136,9 @@ pipeline {
             withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
                 sh 'docker rmi ${DH_USER}/seyoawe-cli:${APP_VERSION} ${DH_USER}/seyoawe-cli:latest 2>/dev/null || true'
             }
+        }
         success {
-            echo "CLI CI complete — image: ${IMAGE_NAME}:${APP_VERSION}"
+            echo "CLI CI complete — version: ${APP_VERSION}"
         }
         failure {
             echo "CLI CI FAILED — check logs above."
