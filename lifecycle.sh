@@ -39,6 +39,7 @@ set -euo pipefail
 #
 # Helm-managed (must uninstall BEFORE terraform destroy):
 #   helm_release  | monitoring (ns: monitoring)    | helm
+#   pvc           | prometheus-db-prometheus-*     | helm/kubectl
 #
 # K8s-managed (must delete BEFORE terraform destroy):
 #   namespace     | seyoawe                        | kubectl

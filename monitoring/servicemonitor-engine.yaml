@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: seyoawe-engine
+  namespace: monitoring
+  labels:
+    app: seyoawe-engine
+    project: seyoawe
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - seyoawe
+  selector:
+    matchLabels:
+      app: seyoawe-engine
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
