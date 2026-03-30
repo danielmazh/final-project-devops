@@ -1,0 +1,38 @@
+# VCS
+.git/
+.gitignore
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+.venv/
+
+# Terraform
+terraform/
+**/.terraform/
+**/*.tfstate*
+**/*.tfvars
+
+# AWS / secrets
+.aws-project/
+**/*.pem
+**/*.key
+.env
+.env.*
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+**/*.swp
+
+# CI / logs
+*.log
+.cursor/
+.instructions/
+
+# Node (if any web assets are added later)
+**/node_modules/

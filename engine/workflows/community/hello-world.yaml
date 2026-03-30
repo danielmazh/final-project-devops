@@ -1,0 +1,14 @@
+workflow:
+  name: hello-world
+  trigger:
+    type: ad-hoc
+
+  context_variables:
+    message: "Hello from SeyoAWE running in Docker/Kubernetes!"
+
+  steps:
+    - id: log_hello
+      type: action
+      module: command_module
+      input:
+        command: echo "{{ context.message }}"
