@@ -161,4 +161,28 @@ Jenkins EC2 (`44.201.6.188`) needs:
   - `dockerhub-user` (Secret text) ✅
   - `aws-credentials` (Username with password) ✅
 
-### Pipeline execution — pending first build run
+### Pipeline execution results
+
+**CLI CI — build #13 (2026-03-30): SUCCESS ✅**
+
+| Stage | Result |
+|-------|--------|
+| Change Detection | `BUILD_CLI=true` (cli/sawectl.py changed) |
+| Lint (flake8) | PASS — clean with `.flake8` config |
+| Unit Tests (pytest) | 13/13 passed |
+| Docker Build | `danielmazh/seyoawe-cli:0.1.1` + `:latest` tagged |
+| Docker Push | Pushed to DockerHub: `sha256:516e9427...` |
+| Git Tag | `cli-v0.1.1` pushed to GitHub |
+
+**Engine CI — selective skip (correct version coupling behavior) ✅**  
+`BUILD_ENGINE=false` — no engine files changed, build stages correctly skipped.
+
+**Fixes applied during pipeline iteration:**
+- `flake8`: added `.flake8` config (upstream code style tolerance)
+- `pip3 --break-system-packages`: Jenkins LTS (Debian Bookworm) requires this flag
+- Docker CLI: copied `/usr/bin/docker` from EC2 host into Jenkins container + added jenkins user to docker group (GID 992)
+- Jenkins container restart to apply group membership
+- Jenkinsfile.cli: missing `}` after `withCredentials` in post block
+- Jenkinsfile.cli: empty `environment {}` block removed (invalid Groovy)
+- Jenkinsfile.engine: removed deleted `${IMAGE_NAME}` reference in success block
+- Both Jenkinsfiles: replaced `dockerhub-user` secret with username from `dockerhub-creds` to ensure login user and image namespace always match
