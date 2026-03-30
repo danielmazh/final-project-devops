@@ -1,0 +1,104 @@
+# kube-prometheus-stack Helm values — tuned for 2 × t3.medium (4 vCPU / 7.5 GiB)
+# Images: quay.io → docker.io mirrors (AWS datacenter IPs can hit quay.io 502s)
+#
+# Install:   helm install  monitoring prometheus-community/kube-prometheus-stack -n monitoring -f monitoring/kube-prometheus-values.yaml
+# Reinstall: helm upgrade  monitoring prometheus-community/kube-prometheus-stack -n monitoring -f monitoring/kube-prometheus-values.yaml
+
+# ── Prometheus ────────────────────────────────────────────────────────────────
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    retention: 3d
+    image:
+      registry: docker.io
+      repository: prom/prometheus
+      tag: v3.10.0
+
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorNamespaceSelector: {}
+    podMonitorSelector: {}
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 400Mi
+      limits:
+        cpu: 500m
+        memory: 600Mi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp2
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+
+# ── Alertmanager ──────────────────────────────────────────────────────────────
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    image:
+      registry: docker.io
+      repository: prom/alertmanager
+      tag: v0.31.1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+grafana:
+  adminPassword: seyoawe-grafana
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: browser
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  sidecar:
+    image:
+      registry: docker.io
+      repository: kiwigrid/k8s-sidecar
+      tag: "2.5.0"
+
+# ── Prometheus Operator ───────────────────────────────────────────────────────
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  prometheusConfigReloader:
+    image:
+      registry: ghcr.io
+      repository: prometheus-operator/prometheus-config-reloader
+      tag: v0.89.0
+
+# ── kube-state-metrics ────────────────────────────────────────────────────────
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# ── node-exporter ─────────────────────────────────────────────────────────────
+prometheus-node-exporter:
+  image:
+    registry: docker.io
+    repository: prom/node-exporter
+    tag: v1.10.2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
