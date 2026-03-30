@@ -101,6 +101,18 @@
         state: present
 
     # ── Summary ───────────────────────────────────────────────────────────────
+    - name: Copy Docker CLI binary into Jenkins container
+      command: docker cp /usr/bin/docker jenkins:/usr/local/bin/docker
+
+    - name: Add jenkins user to docker group inside container (matching host GID)
+      shell: |
+        DOCKER_GID=$(stat -c %g /var/run/docker.sock)
+        docker exec -u root jenkins bash -c "
+          groupadd -f -g ${DOCKER_GID} docker 2>/dev/null || true
+          usermod -aG docker jenkins
+        "
+      changed_when: true
+
     - name: Print Jenkins initial admin password location
       debug:
         msg:
