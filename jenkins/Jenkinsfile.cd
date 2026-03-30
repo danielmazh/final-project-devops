@@ -1,0 +1,164 @@
+// Jenkinsfile.cd — Continuous Deployment pipeline
+// Provisions infrastructure (Terraform), configures it (Ansible),
+// then deploys the application to Kubernetes.
+// Requires credentials: aws-credentials, github-token, dockerhub-creds
+
+pipeline {
+    agent any
+
+    environment {
+        AWS_PROFILE   = 'seyoawe-tf'
+        AWS_REGION    = 'us-east-1'
+        CLUSTER_NAME  = 'seyoawe-cluster'
+        NAMESPACE     = 'seyoawe'
+        TF_DIR        = 'terraform'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Read VERSION') {
+            steps {
+                script {
+                    env.APP_VERSION = sh(script: "cat VERSION | tr -d '[:space:]'", returnStdout: true).trim()
+                    echo "Deploying version: ${env.APP_VERSION}"
+                }
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh """
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        cd ${TF_DIR} && terraform init -input=false
+                    """
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh """
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        cd ${TF_DIR} && terraform plan -out=tfplan -input=false
+                    """
+                }
+            }
+        }
+
+        stage('Approval: Terraform Apply') {
+            steps {
+                input message: "Review the Terraform plan above. Approve to apply infrastructure changes?",
+                      ok: "Apply"
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh """
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        cd ${TF_DIR} && terraform apply -auto-approve tfplan
+                    """
+                }
+            }
+        }
+
+        stage('Ansible: Configure Cluster') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh """
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        ansible-playbook ansible/playbooks/configure-eks.yaml \\
+                            -i ansible/inventory.ini
+                    """
+                }
+            }
+        }
+
+        stage('K8s: Deploy') {
+            steps {
+                sh """
+                    kubectl apply -f k8s/namespace.yaml
+                    kubectl apply -f k8s/engine/
+                """
+            }
+        }
+
+        stage('K8s: Update Image') {
+            steps {
+                script {
+                    def engineImage = sh(
+                        script: "cat terraform/terraform.tfvars 2>/dev/null | grep dockerhub_user | awk -F'\"' '{print \$2}' || echo 'seyoawe'",
+                        returnStdout: true
+                    ).trim()
+                    sh """
+                        kubectl set image statefulset/seyoawe-engine \\
+                            engine=\$(cat /dev/stdin <<< "\$(kubectl get sts seyoawe-engine -n ${NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].image}' | sed 's|:.*|:${APP_VERSION}|')") \\
+                            -n ${NAMESPACE} || \\
+                        kubectl rollout restart statefulset/seyoawe-engine -n ${NAMESPACE}
+                    """
+                }
+            }
+        }
+
+        stage('K8s: Verify Rollout') {
+            steps {
+                sh """
+                    kubectl rollout status statefulset/seyoawe-engine \\
+                        -n ${NAMESPACE} --timeout=300s
+                    kubectl get pods -n ${NAMESPACE}
+                """
+            }
+        }
+
+        stage('Git Tag: Deploy') {
+            steps {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh """
+                        git config user.email "jenkins@seyoawe.ci"
+                        git config user.name "Jenkins CD"
+                        git tag -a "deploy-v${APP_VERSION}" -m "Deployed v${APP_VERSION} to EKS" || true
+                        git push https://${GH_TOKEN}@github.com/\$(git remote get-url origin | sed 's|.*github.com/||') "deploy-v${APP_VERSION}" || true
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "CD pipeline complete — v${APP_VERSION} deployed to EKS cluster ${CLUSTER_NAME}"
+        }
+        failure {
+            echo "CD pipeline FAILED — infrastructure may be in partial state. Check terraform and kubectl output above."
+        }
+    }
+}

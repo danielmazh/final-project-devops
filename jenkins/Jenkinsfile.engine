@@ -1,0 +1,142 @@
+// Jenkinsfile.engine — Engine CI pipeline
+// Triggers: SCM poll or GitHub webhook on changes to engine/, docker/engine/, or VERSION
+// Requires credentials: dockerhub-creds, github-token
+
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USER  = credentials('dockerhub-user')
+        IMAGE_NAME      = "${DOCKERHUB_USER}/seyoawe-engine"
+        BINARY_SRC      = "/home/ec2-user/seyoawe.linux"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Read VERSION') {
+            steps {
+                script {
+                    env.APP_VERSION = sh(script: "cat VERSION | tr -d '[:space:]'", returnStdout: true).trim()
+                    echo "Building version: ${env.APP_VERSION}"
+                }
+            }
+        }
+
+        stage('Change Detection') {
+            steps {
+                script {
+                    def changed = sh(
+                        script: "git diff HEAD~1 --name-only 2>/dev/null || git diff-tree --no-commit-id -r --name-only HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "Changed files:\n${changed}"
+
+                    env.BUILD_ENGINE = (
+                        changed.contains('VERSION') ||
+                        changed.split('\n').any { f ->
+                            f.startsWith('engine/') ||
+                            f.startsWith('docker/engine/')
+                        }
+                    ) ? 'true' : 'false'
+
+                    echo "BUILD_ENGINE=${env.BUILD_ENGINE}"
+                }
+            }
+        }
+
+        stage('Lint') {
+            when { environment name: 'BUILD_ENGINE', value: 'true' }
+            steps {
+                sh '''
+                    echo "=== yamllint: engine config ==="
+                    yamllint -d relaxed engine/configuration/config.yaml
+
+                    echo "=== shellcheck: run.sh ==="
+                    shellcheck engine/run.sh
+                '''
+            }
+        }
+
+        stage('Prepare Binary') {
+            when { environment name: 'BUILD_ENGINE', value: 'true' }
+            steps {
+                sh """
+                    if [ ! -f engine/seyoawe.linux ]; then
+                        echo "Copying engine binary from host..."
+                        cp ${BINARY_SRC} engine/seyoawe.linux
+                        chmod +x engine/seyoawe.linux
+                    else
+                        echo "Engine binary already present in workspace."
+                    fi
+                """
+            }
+        }
+
+        stage('Docker Build') {
+            when { environment name: 'BUILD_ENGINE', value: 'true' }
+            steps {
+                sh """
+                    docker build \\
+                        -f docker/engine/Dockerfile \\
+                        -t ${IMAGE_NAME}:${APP_VERSION} \\
+                        -t ${IMAGE_NAME}:latest \\
+                        --build-arg VERSION=${APP_VERSION} \\
+                        .
+                """
+            }
+        }
+
+        stage('Docker Push') {
+            when { environment name: 'BUILD_ENGINE', value: 'true' }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DH_USER',
+                    passwordVariable: 'DH_PASS'
+                )]) {
+                    sh """
+                        echo "${DH_PASS}" | docker login -u "${DH_USER}" --password-stdin
+                        docker push ${IMAGE_NAME}:${APP_VERSION}
+                        docker push ${IMAGE_NAME}:latest
+                        docker logout
+                    """
+                }
+            }
+        }
+
+        stage('Git Tag') {
+            when { environment name: 'BUILD_ENGINE', value: 'true' }
+            steps {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh """
+                        git config user.email "jenkins@seyoawe.ci"
+                        git config user.name "Jenkins CI"
+                        git tag -a "engine-v${APP_VERSION}" -m "Engine CI build v${APP_VERSION}" || true
+                        git push https://${GH_TOKEN}@github.com/\$(git remote get-url origin | sed 's|.*github.com/||') "engine-v${APP_VERSION}" || true
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rmi ${IMAGE_NAME}:${APP_VERSION} ${IMAGE_NAME}:latest 2>/dev/null || true'
+        }
+        success {
+            echo "Engine CI complete — image: ${IMAGE_NAME}:${APP_VERSION}"
+        }
+        failure {
+            echo "Engine CI FAILED — check logs above."
+        }
+        skipped {
+            echo "No engine changes detected — build skipped."
+        }
+    }
+}

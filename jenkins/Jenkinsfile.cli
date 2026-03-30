@@ -1,0 +1,136 @@
+// Jenkinsfile.cli — CLI CI pipeline
+// Triggers: SCM poll or GitHub webhook on changes to cli/, docker/cli/, or VERSION
+// Requires credentials: dockerhub-creds, github-token
+
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USER = credentials('dockerhub-user')
+        IMAGE_NAME     = "${DOCKERHUB_USER}/seyoawe-cli"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Read VERSION') {
+            steps {
+                script {
+                    env.APP_VERSION = sh(script: "cat VERSION | tr -d '[:space:]'", returnStdout: true).trim()
+                    echo "Building version: ${env.APP_VERSION}"
+                }
+            }
+        }
+
+        stage('Change Detection') {
+            steps {
+                script {
+                    def changed = sh(
+                        script: "git diff HEAD~1 --name-only 2>/dev/null || git diff-tree --no-commit-id -r --name-only HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "Changed files:\n${changed}"
+
+                    env.BUILD_CLI = (
+                        changed.contains('VERSION') ||
+                        changed.split('\n').any { f ->
+                            f.startsWith('cli/') ||
+                            f.startsWith('docker/cli/')
+                        }
+                    ) ? 'true' : 'false'
+
+                    echo "BUILD_CLI=${env.BUILD_CLI}"
+                }
+            }
+        }
+
+        stage('Lint') {
+            when { environment name: 'BUILD_CLI', value: 'true' }
+            steps {
+                sh '''
+                    echo "=== flake8 ==="
+                    pip3 install flake8 --quiet
+                    flake8 cli/ --max-line-length=120 --exclude=cli/tests/
+                '''
+            }
+        }
+
+        stage('Unit Tests') {
+            when { environment name: 'BUILD_CLI', value: 'true' }
+            steps {
+                sh '''
+                    pip3 install pytest pyyaml jsonschema requests --quiet
+                    pytest cli/tests/ -v --junitxml=test-results-cli.xml
+                '''
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'test-results-cli.xml'
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            when { environment name: 'BUILD_CLI', value: 'true' }
+            steps {
+                sh """
+                    docker build \\
+                        -f docker/cli/Dockerfile \\
+                        -t ${IMAGE_NAME}:${APP_VERSION} \\
+                        -t ${IMAGE_NAME}:latest \\
+                        --build-arg VERSION=${APP_VERSION} \\
+                        .
+                """
+            }
+        }
+
+        stage('Docker Push') {
+            when { environment name: 'BUILD_CLI', value: 'true' }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DH_USER',
+                    passwordVariable: 'DH_PASS'
+                )]) {
+                    sh """
+                        echo "${DH_PASS}" | docker login -u "${DH_USER}" --password-stdin
+                        docker push ${IMAGE_NAME}:${APP_VERSION}
+                        docker push ${IMAGE_NAME}:latest
+                        docker logout
+                    """
+                }
+            }
+        }
+
+        stage('Git Tag') {
+            when { environment name: 'BUILD_CLI', value: 'true' }
+            steps {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh """
+                        git config user.email "jenkins@seyoawe.ci"
+                        git config user.name "Jenkins CI"
+                        git tag -a "cli-v${APP_VERSION}" -m "CLI CI build v${APP_VERSION}" || true
+                        git push https://${GH_TOKEN}@github.com/\$(git remote get-url origin | sed 's|.*github.com/||') "cli-v${APP_VERSION}" || true
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rmi ${IMAGE_NAME}:${APP_VERSION} ${IMAGE_NAME}:latest 2>/dev/null || true'
+        }
+        success {
+            echo "CLI CI complete — image: ${IMAGE_NAME}:${APP_VERSION}"
+        }
+        failure {
+            echo "CLI CI FAILED — check logs above."
+        }
+    }
+}
