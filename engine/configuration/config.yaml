@@ -1,7 +1,7 @@
   logging:
     level: DEBUG
     format: "[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s"
-    
+
   directories:
     workdir: .
     modules: ./modules
@@ -12,13 +12,13 @@
   app:
     port: 8080
     customer_id: community
-    poll_for_modules_on_startup: false # controlls the poller behavior. setting to true will override your modules every time the app boots
-    ignored_workflow_dirs: # directories under directories.workflows that will be ignored by the engine
+    poll_for_modules_on_startup: false
+    ignored_workflow_dirs:
       - "samples"
       - "deprecated"
     base_url: http://localhost:8080
 
-  module_dispatcher: 
+  module_dispatcher:
     port: 8081
     url: http://localhost:8081/poll
     md5_strict: false
