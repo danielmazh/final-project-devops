@@ -109,16 +109,30 @@ docker build -f docker/engine/Dockerfile \
 
 ### Test results
 
-- `pytest cli/tests/ -v` → **13 passed in 1.36s** (0 failed, 0 skipped)
-- Fix applied: `conftest.py` path constants moved inline to `test_sawectl.py` (pytest does not expose conftest as an importable module)
+- `pytest cli/tests/ -v` → **13 passed in 1.36s** (0 failed, 0 skipped).
+- Fix applied: `conftest.py` path constants moved inline to `test_sawectl.py` (pytest does not expose conftest as importable module).
 
 ### Docker build results
 
-- `seyoawe-cli:0.1.0` builds and runs ✅ — `--help` prints full usage, `VERSION = "0.1.0"` injected via `sed`
-- `seyoawe-engine:0.1.0` builds and runs ✅ — binary copied from `seyoawe-community/seyoawe.linux`; added `git` to apt deps (engine bundles gitpython); health probe confirmed `healthy`
-- Health probe: `/health` route does not exist; Dockerfile HEALTHCHECK uses `curl -s http://localhost:8080/` (returns 0 on any HTTP response — confirms Flask is accepting requests)
+- `seyoawe-cli:0.1.0` — builds, `--help` works, `VERSION = "0.1.0"` injected ✅
+- `seyoawe-engine:0.1.0` — builds, `Health: healthy` ✅
 
-### Deviations
+### Checklist fixes applied (from `.cursor/wip/CHECKLIST.md`)
 
-- 13 tests written (exceeded minimum 5 from plan) — extra coverage for module manifest and version file
-- conftest.py retained for pytest plugin hook context but constants moved to test file for direct import compatibility
+1. **`modules/modules` symlink** — Added `RUN cd modules && ln -sf . modules` in Dockerfile. Engine module loader resolves `modules/modules/<name>/` via this self-referencing symlink.
+2. **`app.customer_id: community`** — Added to `engine/configuration/config.yaml` `app:` section. Engine registers workflows at `POST /api/community/<name>`.
+3. **Workflow directory** — Created `engine/workflows/community/hello-world.yaml` (not under `samples/`, which is in `ignored_workflow_dirs`).
+4. **`GIT_PYTHON_REFRESH=quiet`** — Set as `ENV` in Dockerfile; suppresses gitpython startup warning.
+
+### API route findings
+
+| Endpoint | Result | Notes |
+|----------|--------|-------|
+| `POST /api/community/hello-world` | `{"status":"accepted"}` 202 ✅ | Registered workflow route works after `customer_id` + symlink fix |
+| `POST /api/adhoc` | 404 | **Does not exist in this binary.** `sawectl run` uses this path — a version mismatch. For Phase 5, use `POST /api/community/<name>` or configure `sawectl` with correct server path. |
+| `GET /health` | 404 | No health route; HEALTHCHECK uses `curl -s localhost:8080/` (exits 0 on any HTTP response) |
+
+### Deviations from design
+
+- 13 tests written (rubric minimum: 5).
+- `api/adhoc` absent from binary — `sawectl run` command needs endpoint override for K8s deployment (Phase 5 concern; noted in master plan).

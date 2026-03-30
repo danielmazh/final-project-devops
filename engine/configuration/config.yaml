@@ -11,6 +11,7 @@
 
   app:
     port: 8080
+    customer_id: community
     poll_for_modules_on_startup: false # controlls the poller behavior. setting to true will override your modules every time the app boots
     ignored_workflow_dirs: # directories under directories.workflows that will be ignored by the engine
       - "samples"

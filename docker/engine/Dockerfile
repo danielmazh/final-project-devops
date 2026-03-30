@@ -17,6 +17,10 @@ RUN pip install --no-cache-dir requests pyyaml jinja2 gitpython
 # Copy the full engine tree (config, modules, workflows, binary)
 COPY engine/ .
 
+# Module loader expects modules/modules/<name>/ — create the self-referencing symlink
+# From inside modules/: ln -s . modules  →  modules/modules → modules/
+RUN cd modules && ln -sf . modules
+
 # Fail fast with a clear message if the binary is missing
 RUN test -f seyoawe.linux \
     || (echo "" && \
@@ -39,5 +43,8 @@ EXPOSE 8080 8081
 # connection failure, so this reliably detects whether Flask is accepting requests.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -s http://localhost:8080/ > /dev/null || exit 1
+
+# Suppress gitpython startup warning (engine bundles gitpython; git CLI is installed above)
+ENV GIT_PYTHON_REFRESH=quiet
 
 ENTRYPOINT ["./seyoawe.linux"]
