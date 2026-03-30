@@ -57,7 +57,7 @@ pipeline {
             steps {
                 sh '''
                     echo "=== flake8 ==="
-                    pip3 install flake8 --quiet
+                    pip3 install flake8 --quiet --break-system-packages 2>/dev/null || pip3 install flake8 --quiet
                     flake8 cli/ --max-line-length=120 --exclude=cli/tests/
                 '''
             }
@@ -67,7 +67,8 @@ pipeline {
             when { environment name: 'BUILD_CLI', value: 'true' }
             steps {
                 sh '''
-                    pip3 install pytest pyyaml jsonschema requests --quiet
+                    pip3 install pytest pyyaml jsonschema requests --quiet --break-system-packages 2>/dev/null || \
+                        pip3 install pytest pyyaml jsonschema requests --quiet
                     pytest cli/tests/ -v --junitxml=test-results-cli.xml
                 '''
             }

@@ -58,6 +58,7 @@ pipeline {
             steps {
                 sh '''
                     echo "=== yamllint: engine config ==="
+                    pip3 install yamllint --quiet --break-system-packages 2>/dev/null || pip3 install yamllint --quiet
                     yamllint -d relaxed engine/configuration/config.yaml
 
                     echo "=== shellcheck: run.sh ==="
