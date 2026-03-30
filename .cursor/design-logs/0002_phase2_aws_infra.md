@@ -143,4 +143,31 @@ No OIDC provider. No IRSA. No service-account-level permissions.
 
 ## Implementation Results
 
-_(Append only after bootstrap + IaC execution.)_
+**When:** 2026-03-27 (Phase 2 IaC authoring)
+
+### Deviations from plan
+
+- IAM user is `devops-trainer` (pre-existing) rather than a newly created `terraform-deployer`. Profile `seyoawe-tf` is configured to use this user. All required permissions are in place.
+- AWS provider resolved to `5.100.0` (compatible with `~> 5.90` pin).
+
+### What was done
+
+1. S3 state bucket `seyoawe-tf-state-632008729195` created (versioning, public-access-block, SSE-AES256).
+2. Terraform files written (flat layout):
+   - `backend.tf` — S3 backend, `use_lockfile = true`, no DynamoDB
+   - `variables.tf` — region, cluster/node/jenkins config, `jenkins_key_pair`, `operator_ip`
+   - `main.tf` — VPC (10.0.0.0/16), 2 public + 2 private subnets, IGW, single NAT, route tables, EKS cluster (1.32), managed node group (2 × t3.medium), EKS addons (vpc-cni, kube-proxy, coredns), IAM roles (cluster + node), Jenkins EC2 (t3.medium) + security group
+   - `outputs.tf` — cluster name/endpoint, kubeconfig command, Jenkins public IP + UI URL, VPC ID
+   - `terraform.tfvars.example` — template for required values (tracked)
+3. Ansible files written:
+   - `ansible/inventory.ini` — localhost + Jenkins host comment/instructions
+   - `ansible/playbooks/install-tools.yaml` — verify tool versions locally
+   - `ansible/playbooks/configure-eks.yaml` — update-kubeconfig, wait for nodes, create namespaces
+   - `ansible/playbooks/configure-jenkins.yaml` — install Docker, start Jenkins container, install kubectl + aws-cli on EC2
+4. `terraform init` — **SUCCESS** (S3 backend connected, provider `aws 5.100.0` installed).
+
+### Remaining before apply
+
+- Create `terraform/terraform.tfvars` from example (fill `jenkins_key_pair` and `operator_ip`)
+- Ensure the named AWS key pair exists in `us-east-1`
+- `terraform plan` → review → `terraform apply`

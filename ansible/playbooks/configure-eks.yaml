@@ -1,0 +1,60 @@
+---
+# Configure local kubectl access to the EKS cluster and create project namespaces.
+#
+# Prerequisites:
+#   - terraform apply has completed successfully
+#   - AWS profile 'seyoawe-tf' is configured
+#
+# Run:
+#   ansible-playbook ansible/playbooks/configure-eks.yaml -i ansible/inventory.ini
+
+- name: Configure local kubectl for EKS
+  hosts: local
+  gather_facts: false
+
+  vars:
+    cluster_name: "seyoawe-cluster"
+    aws_region:   "us-east-1"
+    aws_profile:  "seyoawe-tf"
+    namespaces:
+      - seyoawe
+      - monitoring
+
+  tasks:
+    - name: Update local kubeconfig for EKS cluster
+      command: >
+        aws eks update-kubeconfig
+          --name    {{ cluster_name }}
+          --region  {{ aws_region }}
+          --profile {{ aws_profile }}
+      register: kubeconfig_result
+      changed_when: "'Updated context' in kubeconfig_result.stdout or 'Added' in kubeconfig_result.stdout"
+
+    - name: Print kubeconfig result
+      debug:
+        msg: "{{ kubeconfig_result.stdout }}"
+
+    - name: Wait for cluster API to be reachable
+      command: kubectl cluster-info
+      register: cluster_info
+      retries: 10
+      delay: 15
+      until: cluster_info.rc == 0
+      changed_when: false
+
+    - name: Verify worker nodes are Ready
+      command: kubectl get nodes -o wide
+      register: nodes_output
+      changed_when: false
+
+    - name: Print node status
+      debug:
+        msg: "{{ nodes_output.stdout_lines }}"
+
+    - name: Create project namespaces (idempotent)
+      command: >
+        kubectl create namespace {{ item }}
+        --dry-run=client -o yaml | kubectl apply -f -
+      loop: "{{ namespaces }}"
+      register: ns_result
+      changed_when: "'created' in ns_result.stdout"
