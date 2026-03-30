@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seyoawe-config
+  namespace: seyoawe
+  labels:
+    app: seyoawe-engine
+    project: seyoawe
+data:
+  config.yaml: |
+    logging:
+      level: INFO
+      format: "[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s"
+
+    directories:
+      workdir: .
+      modules: ./modules
+      workflows: ./workflows
+      lifetimes: ./data/lifetimes
+      logs: ./data/logs
+
+    app:
+      port: 8080
+      customer_id: community
+      poll_for_modules_on_startup: false
+      ignored_workflow_dirs:
+        - "samples"
+        - "deprecated"
+      base_url: http://seyoawe-engine:8080
+
+    module_dispatcher:
+      port: 8081
+      url: http://localhost:8081/poll
+      md5_strict: false
+      customer_id: community
+      secret_key: community
+      modules_repo: https://github.com/yuribernstein/seyoawe-community.git
+      modules_repo_access_key: ""
+      modules_branch: main
+
+    module_defaults:
+      chatbot:
+        provider: openai
+        model: gpt-4
+        temperature: 0.7
+        api_key: ""
+
+      api:
+        timeout: 15
+        headers:
+          Content-Type: "application/json"
+        blocking_defaults:
+          poll_interval_seconds: 5
+          timeout_minutes: 3
+
+      email_module:
+        smtp_host: smtp.gmail.com
+        smtp_port: 587
+        smtp_user: ""
+        smtp_pass: ""
+        from_addr: "SeyoAWE Bot <noreply@seyoawe.local>"
+
+      slack_module:
+        webhook_url: ""
+
+      git_module:
+        github_token: ""

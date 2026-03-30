@@ -31,6 +31,9 @@ set -euo pipefail
 #   sg            | seyoawe-eks-node-sg            | terraform
 #   iam_role      | seyoawe-eks-cluster-role       | terraform
 #   iam_role      | seyoawe-eks-node-role          | terraform
+#   iam_role      | seyoawe-ebs-csi-role           | terraform
+#   oidc_provider | oidc.eks.us-east-1.../id/3A... | terraform
+#   eks_addon     | aws-ebs-csi-driver             | terraform
 #   route_table   | seyoawe-public-rt              | terraform
 #   route_table   | seyoawe-private-rt             | terraform
 #
