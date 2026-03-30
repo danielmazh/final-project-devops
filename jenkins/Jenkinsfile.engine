@@ -6,9 +6,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_USER  = credentials('dockerhub-user')
-        IMAGE_NAME      = "${DOCKERHUB_USER}/seyoawe-engine"
-        BINARY_SRC      = "/home/ec2-user/seyoawe.linux"
+        BINARY_SRC = "/home/ec2-user/seyoawe.linux"
     }
 
     stages {
@@ -85,14 +83,20 @@ pipeline {
         stage('Docker Build') {
             when { environment name: 'BUILD_ENGINE', value: 'true' }
             steps {
-                sh """
-                    docker build \\
-                        -f docker/engine/Dockerfile \\
-                        -t ${IMAGE_NAME}:${APP_VERSION} \\
-                        -t ${IMAGE_NAME}:latest \\
-                        --build-arg VERSION=${APP_VERSION} \\
-                        .
-                """
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DH_USER',
+                    passwordVariable: 'DH_PASS'
+                )]) {
+                    sh """
+                        docker build \\
+                            -f docker/engine/Dockerfile \\
+                            -t \${DH_USER}/seyoawe-engine:${APP_VERSION} \\
+                            -t \${DH_USER}/seyoawe-engine:latest \\
+                            --build-arg VERSION=${APP_VERSION} \\
+                            .
+                    """
+                }
             }
         }
 
@@ -105,9 +109,9 @@ pipeline {
                     passwordVariable: 'DH_PASS'
                 )]) {
                     sh """
-                        echo "${DH_PASS}" | docker login -u "${DH_USER}" --password-stdin
-                        docker push ${IMAGE_NAME}:${APP_VERSION}
-                        docker push ${IMAGE_NAME}:latest
+                        echo "\${DH_PASS}" | docker login -u "\${DH_USER}" --password-stdin
+                        docker push \${DH_USER}/seyoawe-engine:${APP_VERSION}
+                        docker push \${DH_USER}/seyoawe-engine:latest
                         docker logout
                     """
                 }
@@ -122,7 +126,7 @@ pipeline {
                         git config user.email "jenkins@seyoawe.ci"
                         git config user.name "Jenkins CI"
                         git tag -a "engine-v${APP_VERSION}" -m "Engine CI build v${APP_VERSION}" || true
-                        git push https://${GH_TOKEN}@github.com/\$(git remote get-url origin | sed 's|.*github.com/||') "engine-v${APP_VERSION}" || true
+                        git push https://\${GH_TOKEN}@github.com/\$(git remote get-url origin | sed 's|.*github.com/||') "engine-v${APP_VERSION}" || true
                     """
                 }
             }
@@ -131,7 +135,9 @@ pipeline {
 
     post {
         always {
-            sh 'docker rmi ${IMAGE_NAME}:${APP_VERSION} ${IMAGE_NAME}:latest 2>/dev/null || true'
+            withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                sh 'docker rmi ${DH_USER}/seyoawe-engine:${APP_VERSION} ${DH_USER}/seyoawe-engine:latest 2>/dev/null || true'
+            }
             script {
                 if (env.BUILD_ENGINE == 'false') {
                     echo "No engine changes detected — build stages were skipped."
