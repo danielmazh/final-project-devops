@@ -1,0 +1,56 @@
+---
+# Install CI lint tools on the Jenkins EC2 host.
+# Run after configure-jenkins.yaml.
+#
+#   JENKINS_IP=$(cd terraform && terraform output -raw jenkins_public_ip)
+#   ansible-playbook ansible/playbooks/configure-jenkins-tools.yaml \
+#     -i "${JENKINS_IP}," \
+#     --user ec2-user \
+#     --private-key ~/keys/devops-key-private-account.pem
+
+- name: Install CI lint tools on Jenkins EC2
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Download and install shellcheck binary
+      get_url:
+        url: "https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz"
+        dest: /tmp/shellcheck.tar.xz
+        mode: "0644"
+
+    - name: Extract shellcheck
+      unarchive:
+        src: /tmp/shellcheck.tar.xz
+        dest: /tmp/
+        remote_src: true
+
+    - name: Install shellcheck to /usr/local/bin
+      copy:
+        src: /tmp/shellcheck-stable/shellcheck
+        dest: /usr/local/bin/shellcheck
+        mode: "0755"
+        remote_src: true
+
+    - name: Install yamllint via pip3
+      pip:
+        name: yamllint
+        executable: pip3
+        state: present
+
+    - name: Verify shellcheck
+      command: shellcheck --version
+      register: sc_ver
+      changed_when: false
+
+    - name: Verify yamllint
+      command: yamllint --version
+      register: yl_ver
+      changed_when: false
+
+    - name: Print versions
+      debug:
+        msg:
+          - "shellcheck: {{ sc_ver.stdout_lines[0] }}"
+          - "yamllint:   {{ yl_ver.stdout }}"
