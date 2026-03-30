@@ -55,6 +55,9 @@ Desktop.ini
 .env.*
 !.env.example
 
+# Per-project AWS credentials (written by setup-env.sh)
+.aws-project/
+
 # Jenkins / CI local
 .jenkins/
 
