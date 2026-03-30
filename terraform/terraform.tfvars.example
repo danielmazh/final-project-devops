@@ -1,0 +1,15 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — it will NOT be committed.
+
+aws_region            = "us-east-1"
+cluster_name          = "seyoawe-cluster"
+node_instance_type    = "t3.medium"
+node_desired_count    = 2
+jenkins_instance_type = "t3.medium"
+
+# Name of an existing AWS key pair (create one in EC2 console → Key Pairs if needed)
+jenkins_key_pair = "YOUR_KEY_PAIR_NAME"
+
+# Your public IP in CIDR form — restricts SSH and Jenkins UI access to you only
+# Get it: curl -s https://checkip.amazonaws.com && echo "/32"
+operator_ip = "YOUR_IP/32"

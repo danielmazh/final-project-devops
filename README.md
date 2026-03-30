@@ -31,51 +31,82 @@ Course requirements and rubric: [`.instructions/final_project.md`](.instructions
 | `monitoring/` | Prometheus / Grafana config (Phase 6). |
 | `.cursor/` | Plans, design logs, rules, diagrams — **administrative** artifacts. |
 
-## Local quickstart (CLI)
+## Quickstart — one-time environment setup
+
+All tools (Terraform, kubectl, Helm, AWS CLI, Ansible, pytest, flake8) are managed inside a project-local Python venv. Only **Python 3.10+** and **Docker** need to be installed globally.
+
+**Step 1 — run the setup script (one time per machine):**
 
 ```bash
-cd cli
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python sawectl.py --help
+bash setup-env.sh
 ```
 
-Validate a workflow (from repo root, paths relative to `engine/`):
+This creates `.venv/`, downloads all Go binaries into `.venv/bin/`, and creates `.aws-project/` for project-local AWS credentials.
+
+**Step 2 — activate the environment (every new terminal session):**
 
 ```bash
-python cli/sawectl.py validate-workflow engine/workflows/samples/<workflow>.yaml \
-  --modules-path engine/modules
+source .venv/bin/activate
 ```
 
-## Local quickstart (Engine)
+After activation: `terraform`, `kubectl`, `helm`, `aws`, `ansible`, `pytest`, `flake8` are all on your `PATH`, pinned to the project's versions.
 
-1. Obtain **`seyoawe.linux`** (Linux) or **`seyoawe.macos.arm`** (Apple Silicon) per project instructions / upstream releases and copy it into `engine/`.
+**Step 3 — configure AWS credentials (one time):**
+
+```bash
+aws configure --profile seyoawe-tf
+```
+
+Credentials are written to `.aws-project/credentials` (gitignored), not to `~/.aws/`.  
+Verify with: `aws sts get-caller-identity --profile seyoawe-tf`
+
+**Tool versions bundled by `setup-env.sh`:**
+
+| Tool | Version | Type |
+|------|---------|------|
+| Terraform | 1.14.0 | Downloaded binary → `.venv/bin/` |
+| kubectl | v1.34.1 | Downloaded binary → `.venv/bin/` |
+| Helm | v3.17.0 | Downloaded binary → `.venv/bin/` |
+| AWS CLI | 1.38.x | pip (`requirements-infra.txt`) |
+| Ansible | 11.3.x | pip (`requirements-infra.txt`) |
+| pytest / flake8 | 8.3.x / 7.2.x | pip (`requirements-infra.txt`) |
+
+Only Docker must be installed separately (required for container builds).
+
+---
+
+## CLI quickstart (after venv is active)
+
+```bash
+python cli/sawectl.py --help
+python cli/sawectl.py validate-workflow engine/workflows/samples/scheduled_api_watchdog.yaml \
+  --modules engine/modules
+```
+
+## Engine quickstart
+
+1. Obtain **`seyoawe.linux`** (Linux) or **`seyoawe.macos.arm`** (Apple Silicon) from upstream releases and copy it into `engine/`.
 2. From `engine/`:
 
 ```bash
 cd engine
-chmod +x run.sh seyoawe.linux   # or seyoawe.macos.arm
-./run.sh linux                  # or: ./run.sh macos
+chmod +x run.sh seyoawe.linux
+./run.sh linux    # or: ./run.sh macos
 ```
 
-The app listens on **8080** (HTTP) and **8081** (module dispatcher) per `configuration/config.yaml`.
+The app listens on **8080** (HTTP) and **8081** (module dispatcher).
 
-## Tooling prerequisites
+## AWS Lifecycle management
 
-Minimum versions align with the master plan in [`.cursor/plans/0001_devops_final_project_master_plan.md`](.cursor/plans/0001_devops_final_project_master_plan.md):
+Use `lifecycle.sh` to suspend or destroy cloud resources to avoid unnecessary billing:
 
-| Tool | Minimum | Check |
-|------|---------|--------|
-| Docker | 24+ | `docker --version` |
-| kubectl | 1.28+ | `kubectl version --client` |
-| Terraform | 1.5+ | `terraform --version` |
-| Ansible | 2.15+ | `ansible --version` |
-| AWS CLI | 2.x | `aws --version` |
-| Python | 3.10+ | `python3 --version` |
-| Helm | 3.x | `helm version` |
-
-Jenkins is used in later phases (local or on-cluster).
+```bash
+./lifecycle.sh status          # see what's running and estimated cost
+./lifecycle.sh stop jenkins    # stop Jenkins EC2 billing
+./lifecycle.sh stop eks-nodes  # scale EKS nodes to 0
+./lifecycle.sh destroy         # full Terraform + Helm + K8s teardown
+./lifecycle.sh destroy --all   # + remove S3 state bucket and IAM user
+```
 
 ## Git workflow
 

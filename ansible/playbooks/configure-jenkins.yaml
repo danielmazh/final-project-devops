@@ -1,0 +1,109 @@
+---
+# Install Docker, start Jenkins container, and install cluster tools on the Jenkins EC2.
+#
+# Prerequisites:
+#   - terraform apply has completed (Jenkins EC2 is running)
+#   - SSH key pair .pem file is available locally
+#
+# Run (replaces static inventory with the live Terraform output):
+#
+#   JENKINS_IP=$(cd terraform && terraform output -raw jenkins_public_ip)
+#   ansible-playbook ansible/playbooks/configure-jenkins.yaml \
+#     -i "${JENKINS_IP}," \
+#     --user ec2-user \
+#     --private-key ~/.ssh/YOUR_KEY_PAIR.pem
+#
+# Or after adding host to ansible/inventory.ini [jenkins] group:
+#   ansible-playbook ansible/playbooks/configure-jenkins.yaml \
+#     -i ansible/inventory.ini --limit jenkins \
+#     --user ec2-user --private-key ~/.ssh/YOUR_KEY_PAIR.pem
+
+- name: Configure Jenkins EC2
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    jenkins_home:    /var/jenkins_home
+    jenkins_version: lts
+    kubectl_version: "v1.34.1"
+
+  tasks:
+
+    # ── Docker ────────────────────────────────────────────────────────────────
+    - name: Install Docker
+      dnf:
+        name: docker
+        state: present
+        update_cache: true
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add ec2-user to docker group
+      user:
+        name: ec2-user
+        groups: docker
+        append: true
+
+    # ── Jenkins container ─────────────────────────────────────────────────────
+    - name: Create Jenkins home directory with correct ownership
+      file:
+        path: "{{ jenkins_home }}"
+        state: directory
+        owner: "1000"
+        group: "1000"
+        mode: "0755"
+
+    - name: Start Jenkins container (idempotent)
+      command: >
+        docker run -d
+          --name jenkins
+          --restart unless-stopped
+          -p 8080:8080
+          -p 50000:50000
+          -v {{ jenkins_home }}:/var/jenkins_home
+          -v /var/run/docker.sock:/var/run/docker.sock
+          -e JAVA_OPTS="-Xmx2g"
+          jenkins/jenkins:{{ jenkins_version }}
+      register: jenkins_run
+      failed_when:
+        - jenkins_run.rc != 0
+        - "'already in use' not in jenkins_run.stderr"
+      changed_when: jenkins_run.rc == 0
+
+    - name: Wait for Jenkins to start
+      wait_for:
+        port: 8080
+        timeout: 120
+
+    # ── kubectl on Jenkins host ───────────────────────────────────────────────
+    - name: Download kubectl binary
+      get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+        force: false
+
+    # ── AWS CLI on Jenkins host ───────────────────────────────────────────────
+    - name: Install pip3
+      dnf:
+        name: python3-pip
+        state: present
+
+    - name: Install awscli via pip3
+      pip:
+        name: awscli
+        executable: pip3
+        state: present
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    - name: Print Jenkins initial admin password location
+      debug:
+        msg:
+          - "Jenkins is running at http://{{ ansible_host }}:8080"
+          - "Retrieve initial admin password:"
+          - "  ssh ec2-user@{{ ansible_host }} 'sudo docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword'"

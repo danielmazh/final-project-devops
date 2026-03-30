@@ -2,8 +2,10 @@
 
 **Project:** SeyoAWE Community — Full DevOps Lifecycle Implementation  
 **Created:** 2026-03-27  
+**Updated:** 2026-03-27 — rewritten for PoC / beginner-course scope  
 **Status:** Active  
-**Score Target:** 100/100 (including Observability bonus)
+**Score Target:** 100/100 (including Observability bonus)  
+**Approach:** Proof-of-Concept — fast, cheap, simple. Meets every rubric requirement without over-engineering.
 
 ---
 
@@ -20,22 +22,31 @@
 9. [Phase 4 — CI Pipelines (Jenkins)](#phase-4--ci-pipelines-jenkins)
 10. [Phase 5 — CD Pipeline & Kubernetes Deployment](#phase-5--cd-pipeline--kubernetes-deployment)
 11. [Phase 6 — Observability (Bonus)](#phase-6--observability-bonus)
-12. [Phase Checklist & Progress Tracker](#phase-checklist--progress-tracker)
+12. [PoC Cost Summary](#poc-cost-summary)
+13. [Phase Checklist & Progress Tracker](#phase-checklist--progress-tracker)
 
 ---
 
 ## 1. Project Overview
 
-Transform the open-source **SeyoAWE Community** workflow automation engine into a production-grade, fully automated DevOps platform deployed on AWS. The system consists of two components:
+Build a **proof-of-concept DevOps platform** around the open-source SeyoAWE Community workflow automation engine, deployed to AWS. The goal is rapid demonstration of all rubric requirements (CI/CD, IaC, containers, K8s, monitoring) with minimal cost and zero unnecessary complexity.
 
 | Component | Language | Description |
 |-----------|----------|-------------|
-| **Engine** | Pre-compiled binary (Flask, ports 8080/8081) | Modular workflow automation runtime. Executes YAML-defined workflows with approvals, Git, Slack, email, API, and chatbot modules. |
-| **CLI (`sawectl`)** | Python 3.10+ | Command-line tool to init, validate, and run workflows against the Engine via REST API (`POST /api/adhoc`). |
+| **Engine** | Pre-compiled binary (Flask, ports 8080/8081) | Modular workflow automation runtime. |
+| **CLI (`sawectl`)** | Python 3.10+ | CLI to init, validate, and run workflows against the Engine via `POST /api/adhoc`. |
 
 **Source repo:** `seyoawe-community` (local clone at `~/CProjects/seyoawe-community`)  
-**Infrastructure repo:** `final-project-devops` (this repo, `~/CProjects/final-project-devops`)  
-**Remote:** GitHub (both repos)
+**Infrastructure repo:** `final-project-devops` (this repo, `~/CProjects/final-project-devops`)
+
+### PoC Design Principles
+
+| Principle | What it means in practice |
+|-----------|--------------------------|
+| **Cost-first** | Single NAT Gateway, smallest viable node count, S3-only state locking (no DynamoDB), tear down when not in use. |
+| **Simplicity-first** | Public EKS API (no bastion/VPN), out-of-the-box Grafana dashboards, no IRSA/OIDC federation. |
+| **Rubric-complete** | Every graded item is implemented — nothing is skipped, only right-sized. |
+| **Adequate sizing** | `t3.medium` for EKS nodes and Jenkins EC2 — enough headroom without throttling. |
 
 ---
 
@@ -84,40 +95,46 @@ main (protected — never commit directly)
 
 ### 2.4 Manual Intervention Protocol
 
-When an action requires human execution (AWS console, API tokens, DNS, Jenkins UI), the assistant MUST:
+When an action requires human execution (AWS console, API tokens, Jenkins UI), the assistant MUST:
 1. **STOP** automated execution
 2. Provide explicit step-by-step instructions with links and expected values
 3. **WAIT** for user confirmation ("done") before proceeding
 
-Examples of manual steps:
-- Creating AWS IAM users/access keys
-- Generating GitHub/DockerHub API tokens
-- Configuring Jenkins plugins via UI
-- Setting up DNS records
-- Creating S3 buckets for Terraform state (if not bootstrapped)
+### 2.5 Resource Registry & Lifecycle Management (CRITICAL)
+
+**Every cloud resource created by this project must be registered in `lifecycle.sh`.**
+
+This is a PoC environment. Forgotten resources cost real money. The following rules are non-negotiable:
+
+1. **Registration:** When adding any cloud resource (Terraform, Helm, kubectl, AWS CLI), add it to the `RESOURCE REGISTRY` block in `lifecycle.sh` at the project root. Format: `TYPE | IDENTIFIER | MANAGED_BY`.
+2. **Selective suspension:** Use `./lifecycle.sh stop <component>` to halt billing on individual services (Jenkins, EKS nodes, monitoring) without destroying the full stack.
+3. **Full teardown:** `./lifecycle.sh destroy` removes Helm releases, K8s namespaces, and Terraform-managed resources in the correct order.
+4. **Nuclear option:** `./lifecycle.sh destroy --all` also removes bootstrap resources (S3 state bucket, IAM user). This guarantees **zero residual footprint** and **zero lingering cost**.
+5. **Enforcement:** An unregistered cloud resource is a review blocker. Before merging any phase branch, verify the registry is complete.
+
+See also: `.cursor/rules/resource-registry.mdc` (always-on rule).
 
 ---
 
 ## 3. Source Application Summary
 
 ### Engine
-- **Binary:** `seyoawe.linux` / `seyoawe.macos.arm` (not included in git — must be downloaded from GitHub releases or built externally)
+- **Binary:** `seyoawe.linux` / `seyoawe.macos.arm` (not in git — manual download)
 - **Launcher:** `run.sh` (selects binary by OS)
 - **Config:** `configuration/config.yaml` (ports, directories, module defaults)
 - **Ports:** 8080 (app), 8081 (module dispatcher)
-- **Directories used at runtime:** `modules/`, `workflows/`, `lifetimes/`, `logs/`
-- **Health endpoint:** `GET /health` on port 8080 (per K8s diagram probes)
+- **Directories at runtime:** `modules/`, `workflows/`, `lifetimes/`, `logs/`
+- **Health endpoint:** `GET /health` on port 8080
 
 ### CLI (`sawectl`)
-- **Entry:** `sawectl/sawectl.py`
-- **Deps:** `sawectl/requirements.txt` → `pyyaml`, `jsonschema`, `requests`, `argparse`
+- **Entry:** `sawectl.py`
+- **Deps:** `requirements.txt` → `pyyaml`, `jsonschema`, `requests`, `argparse`
 - **Version constant:** `VERSION = "0.0.1"` (in `sawectl.py`)
-- **Key commands:** `init`, `validate-workflow`, `validate-modules`, `run`, `list-modules`, `module create`
 - **Engine interaction:** `requests.post(f"http://{server}/api/adhoc", json={"workflow": ...})`
 
 ### Shared Contracts
-- Workflow YAML validated by `sawectl/dsl.schema.json`
-- Module manifests validated by `sawectl/module.schema.json`
+- Workflow YAML validated by `dsl.schema.json`
+- Module manifests validated by `module.schema.json`
 - Both rely on `modules/` directory and `configuration/config.yaml`
 
 ---
@@ -127,94 +144,63 @@ Examples of manual steps:
 ```
 final-project-devops/
 ├── engine/                          # Engine source + binary + config
-│   ├── seyoawe.linux                # Engine binary (Linux)
-│   ├── run.sh                       # Launcher script
-│   ├── configuration/
-│   │   └── config.yaml              # Runtime configuration
-│   ├── modules/                     # Built-in Python modules
-│   └── workflows/                   # Sample workflows
-│       └── samples/
+│   ├── seyoawe.linux                # Engine binary (manual, not in git)
+│   ├── run.sh
+│   ├── configuration/config.yaml
+│   ├── modules/
+│   └── workflows/samples/
 ├── cli/                             # CLI source
-│   ├── sawectl.py                   # CLI entry point
-│   ├── requirements.txt             # Python dependencies
-│   ├── dsl.schema.json              # Workflow schema
-│   ├── module.schema.json           # Module schema
-│   └── tests/                       # Unit tests for CLI
-│       ├── __init__.py
-│       ├── test_sawectl.py
-│       └── conftest.py
+│   ├── sawectl.py
+│   ├── requirements.txt
+│   ├── dsl.schema.json
+│   ├── module.schema.json
+│   └── tests/
+│       └── test_sawectl.py
 ├── docker/                          # Dockerfiles
-│   ├── engine/
-│   │   └── Dockerfile
-│   └── cli/
-│       └── Dockerfile
+│   ├── engine/Dockerfile
+│   └── cli/Dockerfile
 ├── k8s/                             # Kubernetes manifests
 │   ├── namespace.yaml
-│   ├── engine/
-│   │   ├── statefulset.yaml
-│   │   ├── service.yaml
-│   │   ├── configmap.yaml
-│   │   └── pvc.yaml
-│   └── jenkins/
+│   └── engine/
 │       ├── statefulset.yaml
 │       ├── service.yaml
-│       └── pvc.yaml
+│       └── configmap.yaml
 ├── terraform/                       # IaC — AWS provisioning
-│   ├── environments/
-│   │   └── dev/
-│   │       ├── main.tf
-│   │       ├── variables.tf
-│   │       ├── outputs.tf
-│   │       ├── terraform.tfvars
-│   │       └── backend.tf
-│   └── modules/
-│       ├── vpc/
-│       ├── eks/
-│       ├── iam/
-│       └── s3-backend/
+│   ├── main.tf                      # Flat layout (no nested modules for PoC)
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── terraform.tfvars
+│   └── backend.tf
 ├── ansible/                         # Configuration management
-│   ├── inventory/
-│   │   └── aws_hosts.ini
-│   ├── playbooks/
-│   │   ├── configure-eks.yaml
-│   │   └── install-tools.yaml
-│   └── roles/
-│       ├── kubectl/
-│       └── helm/
+│   ├── inventory.ini
+│   └── playbooks/
+│       ├── configure-eks.yaml
+│       ├── install-tools.yaml
+│       └── configure-jenkins.yaml   # Install Docker + Jenkins on EC2
 ├── jenkins/                         # Pipeline definitions
-│   ├── Jenkinsfile.engine           # Engine CI pipeline
-│   ├── Jenkinsfile.cli              # CLI CI pipeline
-│   ├── Jenkinsfile.cd               # CD pipeline
-│   └── shared-libs/                 # Shared pipeline functions
-│       └── vars/
-│           ├── versionCoupling.groovy
-│           └── changeDetection.groovy
-├── monitoring/                      # Observability stack
-│   ├── prometheus/
-│   │   ├── prometheus-values.yaml   # Helm values
-│   │   └── alerting-rules.yaml
-│   └── grafana/
-│       ├── grafana-values.yaml
-│       └── dashboards/
-│           └── seyoawe-dashboard.json
-├── scripts/                         # Build/version helper scripts
-│   ├── version.sh                   # Version coupling logic
-│   ├── change-detect.sh             # Git diff change detection
-│   └── bump-version.sh              # Semantic version bumper
-├── VERSION                          # Single source of truth for semver
-├── README.md                        # Project documentation
-├── .gitignore
-├── .cursor/                         # Administrative files
-│   ├── plans/
-│   ├── design-logs/
-│   ├── helpers-scripts/
-│   ├── logs/
-│   ├── wip/
-│   ├── rules/
-│   ├── diagrams-mmd/
-│   └── diagrams-png/
-└── .instructions/                   # Course assignment materials
+│   ├── Jenkinsfile.engine
+│   ├── Jenkinsfile.cli
+│   └── Jenkinsfile.cd
+├── monitoring/                      # Observability (Helm values only)
+│   └── kube-prometheus-values.yaml
+├── scripts/                         # Build/version helpers
+│   ├── version.sh
+│   └── change-detect.sh
+├── lifecycle.sh                     # AWS resource lifecycle manager (stop/start/destroy)
+├── VERSION
+├── README.md
+└── .gitignore
 ```
+
+**PoC simplifications vs. the original plan:**
+
+| Original | PoC | Why |
+|----------|-----|-----|
+| `terraform/modules/{vpc,eks,iam}/` + `environments/dev/` | Flat `terraform/*.tf` | One environment, one apply — nested modules add indirection with no PoC benefit. |
+| `ansible/roles/{kubectl,helm}/` | Simple playbooks, no roles | Two tasks don't justify role scaffolding. |
+| `jenkins/shared-libs/vars/*.groovy` | Inline logic in each Jenkinsfile | Three pipelines sharing two functions doesn't warrant a shared library. |
+| `monitoring/prometheus/`, `monitoring/grafana/dashboards/` | Single `kube-prometheus-values.yaml` | Helm chart ships with working dashboards; one values file overrides what matters. |
+| `k8s/jenkins/` manifests (Jenkins on EKS) | Jenkins on dedicated EC2 (Terraform + Ansible) | Keeps cluster resources for the workload; native Docker socket for builds; more Terraform/Ansible to show for the CD rubric. |
 
 ---
 
@@ -237,70 +223,9 @@ final-project-devops/
 ## Phase 1 — Repository & Environment Setup
 
 **Branch:** `feature/phase1-repo-setup`  
-**Points covered:** 10 (Code structure & documentation — foundation)  
-**Estimated effort:** 1–2 sessions
+**Status:** ✅ Complete (merged to `main` as `a32fe25`)
 
-### Goals
-- Structure the `final-project-devops` repo with the directory layout from Section 4
-- Copy Engine and CLI source from `seyoawe-community` into the correct locations
-- Create the `VERSION` file (initial `0.1.0`)
-- Initialize `.gitignore` for the project
-- Write a project `README.md`
-- Verify the engine runs locally (if binary is available)
-
-### Tasks
-
-#### 1.1 Create Directory Skeleton
-Create all top-level directories:
-```
-engine/, cli/, docker/engine/, docker/cli/, k8s/engine/, k8s/jenkins/,
-terraform/environments/dev/, terraform/modules/vpc/, terraform/modules/eks/,
-terraform/modules/iam/, terraform/modules/s3-backend/,
-ansible/inventory/, ansible/playbooks/, ansible/roles/,
-jenkins/shared-libs/vars/, monitoring/prometheus/, monitoring/grafana/dashboards/,
-scripts/
-```
-
-#### 1.2 Copy Source from `seyoawe-community`
-- `engine/`: Copy `run.sh`, `configuration/`, `modules/`, `workflows/`
-- `cli/`: Copy `sawectl.py`, `requirements.txt`, `dsl.schema.json`, `module.schema.json`
-- **Engine binary:** Check GitHub releases for `seyoawe.linux`. If unavailable, document as a manual step. For Docker builds, the binary must be present.
-
-#### 1.3 Create VERSION File
-```
-0.1.0
-```
-Single line, no trailing content. This is the single source of truth for semantic versioning across both Engine and CLI.
-
-#### 1.4 Create .gitignore
-Cover: Python (`__pycache__`, `.venv`, `*.pyc`), Terraform (`.terraform/`, `*.tfstate*`, `*.tfvars` with secrets), Docker, IDE files, OS files, secrets (`*.pem`, `.env`).
-
-#### 1.5 Create README.md
-Project overview, architecture diagram reference, directory structure explanation, quickstart instructions, tooling prerequisites.
-
-#### 1.6 Prerequisites Verification
-
-> **MANUAL STEP** — The following tools must be installed locally:
-
-| Tool | Minimum Version | Check Command |
-|------|----------------|---------------|
-| Docker | 24+ | `docker --version` |
-| kubectl | 1.28+ | `kubectl version --client` |
-| Terraform | 1.5+ | `terraform --version` |
-| Ansible | 2.15+ | `ansible --version` |
-| AWS CLI | 2.x | `aws --version` |
-| Python | 3.10+ | `python3 --version` |
-| Jenkins (local or remote) | 2.400+ | N/A |
-| Helm | 3.x | `helm version` |
-
-#### 1.7 Completion Criteria
-- [ ] All directories exist and are not empty (contain at least `.gitkeep` or real files)
-- [ ] Engine source + config copied correctly
-- [ ] CLI source + deps copied correctly
-- [ ] `VERSION` file exists with `0.1.0`
-- [ ] `.gitignore` covers all tool artifacts
-- [ ] `README.md` is present and informative
-- [ ] Commit on `feature/phase1-repo-setup`, pushed to origin
+Delivered: directory skeleton, engine/cli source copy, `VERSION 0.1.0`, `.gitignore`, `README.md`, design log `0001`.
 
 ---
 
@@ -308,66 +233,102 @@ Project overview, architecture diagram reference, directory structure explanatio
 
 **Branch:** `feature/phase2-aws-infra`  
 **Points covered:** 20 (CD pipeline — Terraform + Ansible)  
-**Estimated effort:** 2–3 sessions  
+**Estimated effort:** 1–2 sessions  
 **Depends on:** Phase 1
 
 ### Goals
-- Provision a production-style AWS environment: VPC, subnets (public/private, multi-AZ), NAT gateways, Internet Gateway, security groups
-- Deploy an EKS cluster with a managed node group
-- Configure S3 + DynamoDB for Terraform remote state
-- Use Ansible to install/configure tooling on the bastion or configure kubeconfig
-- All infrastructure is code — repeatable, destroyable, idempotent
+- Provision a PoC-grade AWS environment: VPC, EKS, and a Jenkins EC2 instance
+- Keep costs minimal: single NAT gateway, S3-only state backend (no DynamoDB)
+- Use a public EKS API endpoint for simplicity (no bastion, no VPN)
+- Jenkins on a dedicated EC2 in the public subnet — fast Docker builds, no local-machine bottleneck
+- Ansible configures both the Jenkins host and local kubeconfig
 
-### Architecture (per diagram 005)
+### Architecture
+
 ```
-VPC: 10.0.0.0/16
+VPC: 10.0.0.0/16  (single region, e.g. us-east-1)
 ├── AZ-A
-│   ├── Public Subnet: 10.0.1.0/24  (NAT GW, bastion)
-│   └── Private Subnet: 10.0.10.0/24 (EKS worker nodes)
+│   ├── Public Subnet: 10.0.1.0/24   (NAT GW, Jenkins EC2)
+│   └── Private Subnet: 10.0.10.0/24  (EKS workers)
 ├── AZ-B
-│   ├── Public Subnet: 10.0.2.0/24  (NAT GW)
-│   └── Private Subnet: 10.0.20.0/24 (EKS worker nodes)
+│   ├── Public Subnet: 10.0.2.0/24   (no NAT — routes via AZ-A NAT)
+│   └── Private Subnet: 10.0.20.0/24  (EKS workers)
+
 EKS Cluster:
-├── Control Plane (AWS-managed)
-└── Managed Node Group: 2–3 × t3.medium
+├── Control Plane (AWS-managed, public API endpoint)
+└── Managed Node Group: 2 × t3.medium (private subnets)
+
+Jenkins:  1 × t3.medium EC2 in Public-A (Docker + Jenkins via Ansible)
+
+State: S3 bucket + use_lockfile (no DynamoDB)
 ```
+
+**Cost-saving choices (vs. original plan):**
+
+| Item | Original | PoC | Monthly saving |
+|------|----------|-----|---------------|
+| NAT Gateways | 2 (one per AZ) | 1 (AZ-A only) | ~$32 |
+| DynamoDB lock table | PAY_PER_REQUEST | Eliminated (S3 native lock via `use_lockfile = true`, Terraform 1.10+) | ~$0.25 + complexity |
+| EKS API access | Private + bastion | Public endpoint | No bastion EC2 cost |
+| Node count | 3 × t3.medium | 2 × t3.medium | ~$30 |
 
 ### Tasks
 
 #### 2.1 Terraform State Bootstrap
 
 > **MANUAL STEP** — Before Terraform can run:
-> 1. Create an S3 bucket for state: `seyoawe-tf-state-<account-id>`
-> 2. Create a DynamoDB table for locking: `seyoawe-tf-lock` (partition key: `LockID`, type String)
-> 3. Create an IAM user `terraform-deployer` with AdministratorAccess (or scoped policy)
-> 4. Generate Access Key + Secret Key, store securely
-> 5. Configure AWS CLI: `aws configure --profile seyoawe-tf`
+> 1. Create S3 bucket: `seyoawe-tf-state-<account-id>` (versioning ON, public access blocked, SSE-AES256)
+> 2. Create IAM user `terraform-deployer` with `AdministratorAccess`
+> 3. Generate Access Key + Secret Key
+> 4. `aws configure --profile seyoawe-tf`
+>
+> **No DynamoDB table needed.** Terraform 1.14 uses S3 conditional writes for locking (`use_lockfile = true`).
 
-#### 2.2 Terraform Modules
+#### 2.2 Terraform Files (flat layout)
 
-| Module | Path | Resources |
-|--------|------|-----------|
-| `vpc` | `terraform/modules/vpc/` | VPC, subnets (2 public, 2 private), IGW, NAT GWs, route tables |
-| `eks` | `terraform/modules/eks/` | EKS cluster, managed node group, OIDC provider, addons (CoreDNS, kube-proxy, vpc-cni) |
-| `iam` | `terraform/modules/iam/` | EKS cluster role, node instance role, Jenkins IRSA |
-| `s3-backend` | `terraform/modules/s3-backend/` | (Documentation only — bootstrapped manually) |
+| File | Content |
+|------|---------|
+| `terraform/backend.tf` | S3 backend with `use_lockfile = true` |
+| `terraform/main.tf` | VPC, subnets, IGW, single NAT, route tables, EKS cluster, managed node group, IAM roles, **Jenkins EC2 + security group + key pair** |
+| `terraform/variables.tf` | Region, cluster name, instance type, node count, Jenkins AMI, your IP for SSH |
+| `terraform/outputs.tf` | Cluster endpoint, kubeconfig command, VPC ID, **Jenkins public IP** |
+| `terraform/terraform.tfvars` | Concrete values (gitignored if contains secrets) |
 
-#### 2.3 Terraform Environment Config
-- `terraform/environments/dev/main.tf` — root module wiring all child modules
-- `terraform/environments/dev/variables.tf` — parameterized (region, instance types, cluster name)
-- `terraform/environments/dev/backend.tf` — S3 remote backend config
-- `terraform/environments/dev/outputs.tf` — cluster endpoint, kubeconfig command, VPC ID
+IAM roles (defined directly in `main.tf`):
 
-#### 2.4 Ansible Playbooks
-- `ansible/playbooks/install-tools.yaml` — Install `kubectl`, `helm`, `aws-cli` on bastion/local
-- `ansible/playbooks/configure-eks.yaml` — Update kubeconfig, verify cluster access, apply initial namespaces
+| Role | Trust principal | Attached policies |
+|------|-----------------|-------------------|
+| EKS cluster role | `eks.amazonaws.com` | `AmazonEKSClusterPolicy` |
+| Node instance role | `ec2.amazonaws.com` | `AmazonEKSWorkerNodePolicy`, `AmazonEKS_CNI_Policy`, `AmazonEC2ContainerRegistryReadOnly` |
 
-#### 2.5 Completion Criteria
+Jenkins EC2 (defined directly in `main.tf`):
+
+| Resource | Details |
+|----------|---------|
+| Instance | `t3.medium`, Amazon Linux 2023 AMI, public subnet AZ-A |
+| Security group | Inbound: 8080 (Jenkins UI) + 22 (SSH) from your IP; outbound: all |
+| Key pair | Reference an existing AWS key pair (or create one — manual step) |
+
+No IRSA, no OIDC provider, no service-account-level roles — node role is sufficient for PoC.
+
+#### 2.3 Ansible (post-apply)
+
+| File | Purpose |
+|------|---------|
+| `ansible/inventory.ini` | Two groups: `[local]` (localhost) and `[jenkins]` (EC2 public IP from Terraform output) |
+| `ansible/playbooks/install-tools.yaml` | Ensure `kubectl`, `helm`, `aws-cli` are present on localhost (idempotent) |
+| `ansible/playbooks/configure-eks.yaml` | `aws eks update-kubeconfig`, `kubectl get nodes`, create namespaces (`seyoawe`, `monitoring`) |
+| `ansible/playbooks/configure-jenkins.yaml` | **On Jenkins EC2:** install Docker, start Jenkins container (`jenkins/jenkins:lts`), open firewall, install `kubectl` + `aws-cli` inside the host so pipelines can deploy to EKS |
+
+No Ansible roles directory — three short playbooks are clearer than role scaffolding.
+
+#### 2.4 Completion Criteria
 - [ ] `terraform plan` succeeds with no errors
-- [ ] `terraform apply` provisions VPC + EKS (or can be demonstrated)
-- [ ] `kubectl get nodes` returns healthy worker nodes
-- [ ] Ansible playbook runs without errors
-- [ ] All state is remote (S3 + DynamoDB)
+- [ ] `terraform apply` provisions VPC + EKS + Jenkins EC2
+- [ ] `kubectl get nodes` returns 2 healthy `t3.medium` workers
+- [ ] Jenkins UI accessible at `http://<jenkins-ec2-ip>:8080`
+- [ ] Ansible playbooks run without errors
+- [ ] State is remote in S3 (no local `.tfstate`)
 - [ ] Committed on `feature/phase2-aws-infra`, pushed
 
 ---
@@ -376,62 +337,73 @@ EKS Cluster:
 
 **Branch:** `feature/phase3-docker`  
 **Points covered:** 10 (Engine containerization) + 10 (CLI testing & packaging)  
-**Estimated effort:** 1–2 sessions  
+**Estimated effort:** 1 session  
 **Depends on:** Phase 1
 
 ### Goals
-- Write production-quality Dockerfiles for Engine and CLI
-- Implement CLI unit tests (pytest)
-- Test containers locally with `docker run` and `docker-compose`
-- Ensure version injection via build args
+- Dockerfiles for Engine and CLI
+- CLI unit tests (pytest)
+- Local `docker build` + `docker run` validation
+- Version injection via `--build-arg`
 
 ### Tasks
 
 #### 3.1 Engine Dockerfile (`docker/engine/Dockerfile`)
+
 ```
-Base: python:3.11-slim (or ubuntu:22.04 for binary compatibility)
-Strategy:
-  1. Copy engine binary (seyoawe.linux)
-  2. Copy configuration/, modules/, workflows/
-  3. Install Python deps for modules (each module may have its own requirements)
-  4. Expose ports 8080, 8081
-  5. HEALTHCHECK: curl /health
-  6. ENTRYPOINT: ./seyoawe.linux
-  7. ARG VERSION → LABEL version=${VERSION}
+FROM python:3.11-slim
+ARG VERSION=dev
+LABEL version=${VERSION}
+WORKDIR /app
+COPY engine/ .
+RUN pip install --no-cache-dir requests pyyaml  # module deps
+RUN chmod +x run.sh seyoawe.linux
+EXPOSE 8080 8081
+HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1
+ENTRYPOINT ["./seyoawe.linux"]
 ```
 
+Build context is repo root; Dockerfile `COPY engine/ .` pulls the whole engine tree.
+
 #### 3.2 CLI Dockerfile (`docker/cli/Dockerfile`)
+
 ```
-Base: python:3.11-slim
-Strategy:
-  1. Copy cli/ source
-  2. pip install -r requirements.txt
-  3. ARG VERSION → inject into sawectl.py or env var
-  4. ENTRYPOINT: python sawectl.py
+FROM python:3.11-slim
+ARG VERSION=dev
+LABEL version=${VERSION}
+WORKDIR /app
+COPY cli/ .
+RUN pip install --no-cache-dir -r requirements.txt
+ENTRYPOINT ["python", "sawectl.py"]
 ```
 
 #### 3.3 CLI Unit Tests
-- Create `cli/tests/test_sawectl.py`
-- Test: schema validation, workflow loading, version display, error handling
-- Run with: `pytest cli/tests/ -v`
+
+Create `cli/tests/test_sawectl.py` with minimum 5 test cases:
+- YAML loading (valid + invalid)
+- Schema validation pass/fail
+- `--help` exits 0
+- Version string matches `VERSION` file
+- Workflow validation against sample
+
+Run: `pytest cli/tests/ -v`
 
 #### 3.4 Local Testing
-```bash
-# Engine
-docker build -f docker/engine/Dockerfile -t seyoawe-engine:local --build-arg VERSION=0.1.0 .
-docker run -p 8080:8080 -p 8081:8081 seyoawe-engine:local
-# Verify: curl http://localhost:8080/health
 
-# CLI
+```bash
+docker build -f docker/engine/Dockerfile -t seyoawe-engine:local --build-arg VERSION=0.1.0 .
+docker run -d -p 8080:8080 -p 8081:8081 seyoawe-engine:local
+curl http://localhost:8080/health
+
 docker build -f docker/cli/Dockerfile -t seyoawe-cli:local --build-arg VERSION=0.1.0 .
 docker run seyoawe-cli:local --help
 ```
 
 #### 3.5 Completion Criteria
-- [ ] Engine Docker image builds and runs (responds on 8080)
-- [ ] CLI Docker image builds and runs (`--help` works)
-- [ ] Unit tests pass: `pytest cli/tests/ -v` (minimum 5 test cases)
-- [ ] Images tagged with version from `VERSION` file
+- [ ] Engine image builds and responds on 8080
+- [ ] CLI image builds and `--help` works
+- [ ] `pytest cli/tests/ -v` passes (minimum 5 cases)
+- [ ] Images tagged with version from `VERSION`
 - [ ] Committed on `feature/phase3-docker`, pushed
 
 ---
@@ -440,92 +412,70 @@ docker run seyoawe-cli:local --help
 
 **Branch:** `feature/phase4-ci-pipelines`  
 **Points covered:** 15 (Engine CI) + 10 (CLI CI) + 15 (Version coupling)  
-**Estimated effort:** 2–3 sessions  
+**Estimated effort:** 2 sessions  
 **Depends on:** Phase 3
 
 ### Goals
-- Set up Jenkins (locally or on EKS)
-- Create CI pipeline for Engine: lint, test, build, version-tag, push to DockerHub
-- Create CI pipeline for CLI: lint, pytest, build, version-tag, push to DockerHub
-- Implement version coupling: shared `VERSION` file, change detection, selective builds
-- Implement semantic versioning and git tagging
+- Use the Jenkins EC2 instance provisioned in Phase 2 (configured by Ansible)
+- Engine CI pipeline: lint, test, build, push, tag
+- CLI CI pipeline: lint, pytest, build, push, tag
+- Version coupling: shared `VERSION` file, `scripts/change-detect.sh`, selective builds
 
 ### Tasks
 
-#### 4.1 Jenkins Setup
+#### 4.1 Jenkins Setup (EC2 — already running from Phase 2)
 
-> **MANUAL STEP** — Jenkins must be running and accessible:
-> - Option A: Local Jenkins via Docker
-> - Option B: Jenkins on EKS (deployed in Phase 5)
-> 
-> Required plugins: Pipeline, Git, Docker Pipeline, Credentials Binding, Blue Ocean (optional)
-> 
-> Required credentials (configure in Jenkins > Manage > Credentials):
-> 1. `dockerhub-creds` — DockerHub username + token
-> 2. `github-token` — GitHub personal access token
-> 3. `aws-credentials` — AWS access key + secret (for CD pipeline later)
+Jenkins should already be running at `http://<jenkins-ec2-ip>:8080` (provisioned by Terraform, configured by Ansible in Phase 2).
+
+> **MANUAL STEP:**
+> 1. Open `http://<jenkins-ec2-ip>:8080` in your browser
+> 2. Retrieve initial admin password: `ssh ec2-user@<ip> "docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword"`
+> 3. Install suggested plugins + add: Docker Pipeline, Credentials Binding
+> 4. Add credentials:
+>    - `dockerhub-creds` — DockerHub username + token
+>    - `github-token` — GitHub PAT
 
 #### 4.2 Version Coupling Logic
 
-**`VERSION` file** (repo root): Single source of truth, e.g., `0.1.0`
+**`VERSION` file** (repo root): single source of truth, e.g. `0.1.0`.
 
-**`scripts/version.sh`**: Reads VERSION, exports as env var, injects into Docker builds and CLI source.
+**`scripts/version.sh`**: Reads `VERSION`, exports as env var.
 
-**`scripts/change-detect.sh`**: Uses `git diff HEAD~1 --name-only` to classify changes:
-- Engine paths: `engine/`, `docker/engine/`, `configuration/`
+**`scripts/change-detect.sh`**: Uses `git diff HEAD~1 --name-only`:
+- Engine paths: `engine/`, `docker/engine/`
 - CLI paths: `cli/`, `docker/cli/`
 - VERSION path: `VERSION` → triggers both
 
-**Trigger matrix:**
 | Engine changed | CLI changed | VERSION changed | Action |
 |:-:|:-:|:-:|--------|
 | Yes | No | No | Build Engine only |
 | No | Yes | No | Build CLI only |
 | Yes | Yes | * | Build both |
-| No | No | Yes | Build both (version bump) |
-| No | No | No | Skip builds |
+| No | No | Yes | Build both |
+| No | No | No | Skip |
 
-#### 4.3 Engine CI Pipeline (`jenkins/Jenkinsfile.engine`)
-```
-Stages:
-  1. Checkout
-  2. Read VERSION
-  3. Change Detection (skip if no engine changes)
-  4. Lint (shellcheck for scripts, yamllint for config)
-  5. Test (engine health check in temp container)
-  6. Docker Build (--build-arg VERSION=$VER)
-  7. Docker Push to DockerHub ($DOCKERHUB_USER/seyoawe-engine:$VER, :latest)
-  8. Git Tag (engine-v$VER)
-```
+#### 4.3 Engine CI (`jenkins/Jenkinsfile.engine`)
 
-#### 4.4 CLI CI Pipeline (`jenkins/Jenkinsfile.cli`)
-```
-Stages:
-  1. Checkout
-  2. Read VERSION
-  3. Change Detection (skip if no CLI changes)
-  4. Lint (flake8 / pylint)
-  5. Unit Tests (pytest with JUnit report)
-  6. Docker Build (--build-arg VERSION=$VER)
-  7. Docker Push to DockerHub ($DOCKERHUB_USER/seyoawe-cli:$VER, :latest)
-  8. Git Tag (cli-v$VER)
-```
+Stages: Checkout → Read VERSION → Change Detection → Lint (yamllint on config, shellcheck on scripts) → Docker Build → Docker Push (`$USER/seyoawe-engine:$VER`, `:latest`) → Git Tag (`engine-v$VER`).
+
+#### 4.4 CLI CI (`jenkins/Jenkinsfile.cli`)
+
+Stages: Checkout → Read VERSION → Change Detection → Lint (flake8) → Unit Tests (pytest, JUnit report) → Docker Build → Docker Push (`$USER/seyoawe-cli:$VER`, `:latest`) → Git Tag (`cli-v$VER`).
 
 #### 4.5 DockerHub Setup
 
 > **MANUAL STEP:**
-> 1. Create DockerHub account (if not existing)
-> 2. Create repositories: `<username>/seyoawe-engine`, `<username>/seyoawe-cli`
-> 3. Generate an access token: DockerHub > Account Settings > Security > New Access Token
-> 4. Add to Jenkins as `dockerhub-creds` (Username with password)
+> 1. Create repos on DockerHub: `<username>/seyoawe-engine`, `<username>/seyoawe-cli`
+> 2. Generate access token: DockerHub > Account Settings > Security > New Access Token
+> 3. Add to Jenkins as `dockerhub-creds`
 
 #### 4.6 Completion Criteria
-- [ ] Engine CI pipeline: lint → test → build → push → tag (green)
-- [ ] CLI CI pipeline: lint → pytest → build → push → tag (green)
-- [ ] Version coupling: VERSION file change triggers both pipelines
-- [ ] Change detection: only affected pipeline triggers on partial changes
-- [ ] Images visible on DockerHub with correct version tags
-- [ ] Git tags created: `engine-v0.1.0`, `cli-v0.1.0`
+- [ ] Engine CI: lint → build → push → tag (green)
+- [ ] CLI CI: lint → pytest → build → push → tag (green)
+- [ ] VERSION change triggers both pipelines
+- [ ] Partial change triggers only the affected pipeline
+- [ ] Images on DockerHub with correct tags
+- [ ] Git tags: `engine-v0.1.0`, `cli-v0.1.0`
 - [ ] Committed on `feature/phase4-ci-pipelines`, pushed
 
 ---
@@ -533,71 +483,62 @@ Stages:
 ## Phase 5 — CD Pipeline & Kubernetes Deployment
 
 **Branch:** `feature/phase5-cd-kubernetes`  
-**Points covered:** 20 (CD pipeline) — reinforces Phase 2  
-**Estimated effort:** 2–3 sessions  
+**Points covered:** 20 (CD pipeline, reinforces Phase 2)  
+**Estimated effort:** 1–2 sessions  
 **Depends on:** Phase 2, Phase 4
 
 ### Goals
-- Deploy Engine to Kubernetes as a StatefulSet
-- Implement health probes, persistent storage, service configuration
-- Create a Jenkins CD pipeline that provisions infra (Terraform), configures (Ansible), and deploys (kubectl/helm)
+- Deploy Engine to EKS as a StatefulSet with health probes and persistent storage
+- Jenkins CD pipeline (running on EC2): Terraform → Ansible → kubectl apply
 
-### Architecture (per diagram 006)
+### K8s Architecture
+
 ```
 Namespace: seyoawe
-├── StatefulSet: seyoawe-engine (replicas: 2)
-│   ├── Container: engine (ports: 8080, 8081)
-│   ├── Liveness Probe: HTTP GET /health :8080
+├── StatefulSet: seyoawe-engine (replicas: 1)
+│   ├── Container: engine (8080, 8081)
+│   ├── Liveness Probe:  HTTP GET /health :8080
 │   ├── Readiness Probe: HTTP GET /health :8080
-│   ├── Volume: /app/logs (PVC)
+│   ├── Volume: /app/logs          (PVC, volumeClaimTemplate)
 │   └── Volume: /app/configuration (ConfigMap)
 ├── Service: seyoawe-engine (ClusterIP → 8080, 8081)
-├── ConfigMap: seyoawe-config (config.yaml)
-└── PVCs: data-seyoawe-engine-{0,1}
-
-Namespace: jenkins
-├── StatefulSet: jenkins-controller
-├── Service: jenkins (8080)
-└── PVC: jenkins-home
+└── ConfigMap: seyoawe-config (config.yaml)
 ```
+
+Single replica is sufficient for PoC. The StatefulSet kind, PVCs, probes, and ConfigMap mount satisfy all rubric items.
 
 ### Tasks
 
 #### 5.1 Kubernetes Manifests
+
 | File | Content |
 |------|---------|
-| `k8s/namespace.yaml` | Namespaces: `seyoawe`, `jenkins`, `monitoring` |
+| `k8s/namespace.yaml` | Namespaces: `seyoawe`, `monitoring` |
 | `k8s/engine/configmap.yaml` | Engine `config.yaml` as ConfigMap |
-| `k8s/engine/statefulset.yaml` | StatefulSet with probes, volume mounts, resource limits |
-| `k8s/engine/service.yaml` | ClusterIP service exposing 8080, 8081 |
-| `k8s/engine/pvc.yaml` | VolumeClaimTemplates for logs/lifetimes |
-| `k8s/jenkins/statefulset.yaml` | Jenkins controller deployment |
-| `k8s/jenkins/service.yaml` | Jenkins service (8080 + 50000 for agents) |
-| `k8s/jenkins/pvc.yaml` | Jenkins home persistent volume |
+| `k8s/engine/statefulset.yaml` | StatefulSet with probes, volumeClaimTemplate, resource requests/limits |
+| `k8s/engine/service.yaml` | ClusterIP exposing 8080, 8081 |
+
+No separate PVC file — `volumeClaimTemplates` inside the StatefulSet spec handles this automatically.
 
 #### 5.2 CD Pipeline (`jenkins/Jenkinsfile.cd`)
-```
+
 Stages:
-  1. Checkout
-  2. Read VERSION
-  3. Terraform Init + Plan (terraform/environments/dev/)
-  4. Manual Approval Gate (for terraform apply)
-  5. Terraform Apply
-  6. Ansible Configure (update kubeconfig, install tools)
-  7. Kubernetes Deploy:
-     a. kubectl apply -f k8s/namespace.yaml
-     b. kubectl apply -f k8s/engine/
-     c. Update image tag: kubectl set image statefulset/seyoawe-engine engine=$IMAGE:$VER
-  8. Health Verification (kubectl rollout status, curl /health)
-  9. Git Tag (deploy-v$VER)
-```
+1. Checkout
+2. Read VERSION
+3. Terraform Init + Plan
+4. Manual Approval Gate
+5. Terraform Apply
+6. Ansible: update kubeconfig, verify nodes
+7. `kubectl apply -f k8s/namespace.yaml && kubectl apply -f k8s/engine/`
+8. `kubectl set image` to new version tag
+9. Health verification (`kubectl rollout status`)
 
 #### 5.3 Completion Criteria
-- [ ] StatefulSet pods running: `kubectl get pods -n seyoawe`
-- [ ] Engine responds to health checks inside cluster
-- [ ] PVCs bound and logs persisting across pod restarts
-- [ ] ConfigMap mounted correctly at `/app/configuration`
-- [ ] CD pipeline executes end-to-end (with approval gate)
+- [ ] StatefulSet pod running: `kubectl get pods -n seyoawe`
+- [ ] Engine responds to health checks
+- [ ] PVC bound, logs persist across pod restart
+- [ ] ConfigMap mounted at `/app/configuration`
+- [ ] CD pipeline runs end-to-end with approval gate
 - [ ] Committed on `feature/phase5-cd-kubernetes`, pushed
 
 ---
@@ -606,52 +547,66 @@ Stages:
 
 **Branch:** `feature/phase6-observability`  
 **Points covered:** +10 bonus  
-**Estimated effort:** 1–2 sessions  
+**Estimated effort:** 1 session  
 **Depends on:** Phase 5
 
 ### Goals
-- Deploy Prometheus to scrape Engine metrics
-- Deploy Grafana with pre-configured dashboards
-- Set up alerting rules for critical conditions
-- All deployed in the `monitoring` namespace on EKS
-
-### Architecture (per diagram 008)
-```
-Namespace: monitoring
-├── Prometheus (StatefulSet, scrapes seyoawe-engine:8080/metrics)
-├── Grafana (Deployment, port 3000)
-├── Alertmanager (Deployment)
-└── ServiceMonitor: seyoawe-engine
-```
+- Prometheus + Grafana on EKS using the `kube-prometheus-stack` Helm chart
+- Use the **built-in dashboards** that ship with the chart (Kubernetes / Node / Pod)
+- Minimal custom config: one values file override
 
 ### Tasks
 
-#### 6.1 Prometheus Setup
-- Use Helm chart: `prometheus-community/kube-prometheus-stack`
-- Custom values: `monitoring/prometheus/prometheus-values.yaml`
-- ServiceMonitor targeting `seyoawe-engine` service on port 8080
-- Alerting rules: `monitoring/prometheus/alerting-rules.yaml`
-  - Pod restart count > 3 in 5m
-  - Engine response time > 5s
-  - Pod not ready for > 2m
+#### 6.1 Install via Helm
 
-#### 6.2 Grafana Dashboards
-- `monitoring/grafana/dashboards/seyoawe-dashboard.json`
-- Panels: request rate, error rate, response latency, pod status, CPU/memory usage
-- Data source: auto-provisioned Prometheus
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install monitoring prometheus-community/kube-prometheus-stack \
+  -n monitoring --create-namespace \
+  -f monitoring/kube-prometheus-values.yaml
+```
+
+#### 6.2 Values file (`monitoring/kube-prometheus-values.yaml`)
+
+Override only what matters for PoC:
+- Grafana `adminPassword` (or reference a secret)
+- `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues: false` (scrape everything)
+- Disable components we don't need to save resources (e.g. `alertmanager.enabled: false` if not needed, but keeping it shows awareness)
+- Resource requests tuned low for t3.medium nodes
+
+The chart ships with **~20 pre-built Grafana dashboards** (Kubernetes / Nodes / Pods / Namespaces / etc.). No custom JSON needed — they work immediately and satisfy the rubric.
 
 #### 6.3 Access
 
 > **MANUAL STEP:**
-> - Port-forward Grafana: `kubectl port-forward svc/grafana 3000:3000 -n monitoring`
-> - Default login: admin / (retrieve from secret)
-> - Import dashboard from JSON
+> ```bash
+> kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
+> ```
+> Login: `admin` / password from `kubectl get secret monitoring-grafana -n monitoring -o jsonpath="{.data.admin-password}" | base64 -d`
 
 #### 6.4 Completion Criteria
-- [ ] Prometheus scraping Engine metrics
-- [ ] Grafana dashboard shows live data
-- [ ] Alert rules configured and visible
+- [ ] Prometheus running and scraping cluster metrics
+- [ ] Grafana accessible with built-in dashboards showing live data
+- [ ] Engine pods visible in Kubernetes dashboards
 - [ ] Committed on `feature/phase6-observability`, pushed
+
+---
+
+## PoC Cost Summary
+
+Estimated monthly cost if left running 24/7 in `us-east-1` (tear down after demo to pay nothing):
+
+| Resource | Monthly estimate |
+|----------|-----------------|
+| EKS control plane | $73 |
+| 2 × t3.medium EKS nodes (on-demand) | ~$60 |
+| 1 × t3.medium Jenkins EC2 (on-demand) | ~$30 |
+| 1 × NAT Gateway + data | ~$35 |
+| S3 (state, negligible) | < $1 |
+| EBS (PVCs + Jenkins root, ~30 GiB gp3) | ~$3 |
+| **Total** | **~$202/month** |
+
+**Recommendation:** Run `terraform destroy` after each working session; re-apply takes ~15 minutes. This brings real cost to a few dollars total.
 
 ---
 
@@ -659,21 +614,13 @@ Namespace: monitoring
 
 | Phase | Branch | Status | Design Log | Merged to Main |
 |-------|--------|--------|------------|----------------|
-| 1. Repo & Env Setup | `feature/phase1-repo-setup` | ⬜ Not Started | — | ⬜ |
-| 2. AWS Infrastructure | `feature/phase2-aws-infra` | ⬜ Not Started | ⬜ Required | ⬜ |
+| 1. Repo & Env Setup | `feature/phase1-repo-setup` | ✅ Complete | `0001` | ✅ `a32fe25` |
+| 2. AWS Infrastructure | `feature/phase2-aws-infra` | 🔄 In Progress | `0002` | ⬜ |
 | 3. Containerization | `feature/phase3-docker` | ⬜ Not Started | ⬜ Required | ⬜ |
 | 4. CI Pipelines | `feature/phase4-ci-pipelines` | ⬜ Not Started | ⬜ Required | ⬜ |
 | 5. CD & Kubernetes | `feature/phase5-cd-kubernetes` | ⬜ Not Started | ⬜ Required | ⬜ |
 | 6. Observability | `feature/phase6-observability` | ⬜ Not Started | ⬜ Required | ⬜ |
 
-### Legend
-- ⬜ Not Started
-- 🔄 In Progress
-- ✅ Complete
-- ⛔ Blocked
-
 ---
 
-**End of Master Plan — v1.0**
-
-*Next action: Confirm readiness to begin Phase 1.*
+**End of Master Plan — v2.0 (PoC)**

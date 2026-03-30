@@ -1,6 +1,5 @@
 ---
-description: "Strict standards for automated file placement, design logs, and sequential indexing."
-alwaysApply: false
+alwaysApply: true
 ---
 # Jay Framework & Design Log Rules
 

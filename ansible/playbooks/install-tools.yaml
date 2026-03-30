@@ -1,0 +1,42 @@
+---
+# Verify that all required DevOps tools are present and report their versions.
+# Run: ansible-playbook ansible/playbooks/install-tools.yaml -i ansible/inventory.ini
+
+- name: Verify DevOps tools on local machine
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Check terraform
+      command: terraform --version
+      register: tf_ver
+      changed_when: false
+
+    - name: Check kubectl
+      command: kubectl version --client --output yaml
+      register: kb_ver
+      changed_when: false
+
+    - name: Check helm
+      command: helm version --short
+      register: helm_ver
+      changed_when: false
+
+    - name: Check aws-cli
+      command: aws --version
+      register: aws_ver
+      changed_when: false
+
+    - name: Check ansible
+      command: ansible --version
+      register: ans_ver
+      changed_when: false
+
+    - name: Print all versions
+      debug:
+        msg:
+          - "Terraform : {{ tf_ver.stdout_lines[0] }}"
+          - "kubectl   : {{ (kb_ver.stdout | from_yaml).clientVersion.gitVersion }}"
+          - "Helm      : {{ helm_ver.stdout }}"
+          - "AWS CLI   : {{ aws_ver.stdout }}"
+          - "Ansible   : {{ ans_ver.stdout_lines[0] }}"

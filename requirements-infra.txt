@@ -1,0 +1,18 @@
+# Infrastructure tooling — installed into .venv via setup-env.sh
+# Pin with ~= (compatible release): allows patch updates, locks major.minor.
+
+# AWS CLI v1 — pip-installable, sufficient for all project operations
+awscli~=1.38
+
+# Ansible
+ansible~=11.3
+
+# Test & lint (also used in CI pipelines)
+pytest~=8.3
+pytest-cov~=6.1
+flake8~=7.2
+
+# CLI runtime deps (mirrors cli/requirements.txt — installed once here)
+pyyaml~=6.0
+jsonschema~=4.23
+requests~=2.32
