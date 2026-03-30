@@ -44,9 +44,9 @@ Build a **proof-of-concept DevOps platform** around the open-source SeyoAWE Comm
 | Principle | What it means in practice |
 |-----------|--------------------------|
 | **Cost-first** | Single NAT Gateway, smallest viable node count, S3-only state locking (no DynamoDB), tear down when not in use. |
-| **Simplicity-first** | Public EKS API (no bastion/VPN), Jenkins runs locally via Docker (not on-cluster), out-of-the-box Grafana dashboards, no IRSA/OIDC federation. |
+| **Simplicity-first** | Public EKS API (no bastion/VPN), out-of-the-box Grafana dashboards, no IRSA/OIDC federation. |
 | **Rubric-complete** | Every graded item is implemented — nothing is skipped, only right-sized. |
-| **Adequate sizing** | `t3.medium` nodes give enough headroom for engine + monitoring pods without throttling. |
+| **Adequate sizing** | `t3.medium` for EKS nodes and Jenkins EC2 — enough headroom without throttling. |
 
 ---
 
@@ -161,7 +161,8 @@ final-project-devops/
 │   ├── inventory.ini
 │   └── playbooks/
 │       ├── configure-eks.yaml
-│       └── install-tools.yaml
+│       ├── install-tools.yaml
+│       └── configure-jenkins.yaml   # Install Docker + Jenkins on EC2
 ├── jenkins/                         # Pipeline definitions
 │   ├── Jenkinsfile.engine
 │   ├── Jenkinsfile.cli
@@ -184,7 +185,7 @@ final-project-devops/
 | `ansible/roles/{kubectl,helm}/` | Simple playbooks, no roles | Two tasks don't justify role scaffolding. |
 | `jenkins/shared-libs/vars/*.groovy` | Inline logic in each Jenkinsfile | Three pipelines sharing two functions doesn't warrant a shared library. |
 | `monitoring/prometheus/`, `monitoring/grafana/dashboards/` | Single `kube-prometheus-values.yaml` | Helm chart ships with working dashboards; one values file overrides what matters. |
-| `k8s/jenkins/` manifests | Jenkins runs locally via `docker run` | Keeps cluster resources for the actual workload. |
+| `k8s/jenkins/` manifests (Jenkins on EKS) | Jenkins on dedicated EC2 (Terraform + Ansible) | Keeps cluster resources for the workload; native Docker socket for builds; more Terraform/Ansible to show for the CD rubric. |
 
 ---
 
@@ -221,17 +222,18 @@ Delivered: directory skeleton, engine/cli source copy, `VERSION 0.1.0`, `.gitign
 **Depends on:** Phase 1
 
 ### Goals
-- Provision a PoC-grade AWS environment that can host EKS
+- Provision a PoC-grade AWS environment: VPC, EKS, and a Jenkins EC2 instance
 - Keep costs minimal: single NAT gateway, S3-only state backend (no DynamoDB)
 - Use a public EKS API endpoint for simplicity (no bastion, no VPN)
-- Ansible configures local kubeconfig and verifies cluster access
+- Jenkins on a dedicated EC2 in the public subnet — fast Docker builds, no local-machine bottleneck
+- Ansible configures both the Jenkins host and local kubeconfig
 
 ### Architecture
 
 ```
 VPC: 10.0.0.0/16  (single region, e.g. us-east-1)
 ├── AZ-A
-│   ├── Public Subnet: 10.0.1.0/24   (NAT GW — the only one)
+│   ├── Public Subnet: 10.0.1.0/24   (NAT GW, Jenkins EC2)
 │   └── Private Subnet: 10.0.10.0/24  (EKS workers)
 ├── AZ-B
 │   ├── Public Subnet: 10.0.2.0/24   (no NAT — routes via AZ-A NAT)
@@ -240,6 +242,8 @@ VPC: 10.0.0.0/16  (single region, e.g. us-east-1)
 EKS Cluster:
 ├── Control Plane (AWS-managed, public API endpoint)
 └── Managed Node Group: 2 × t3.medium (private subnets)
+
+Jenkins:  1 × t3.medium EC2 in Public-A (Docker + Jenkins via Ansible)
 
 State: S3 bucket + use_lockfile (no DynamoDB)
 ```
@@ -270,9 +274,9 @@ State: S3 bucket + use_lockfile (no DynamoDB)
 | File | Content |
 |------|---------|
 | `terraform/backend.tf` | S3 backend with `use_lockfile = true` |
-| `terraform/main.tf` | VPC, subnets, IGW, single NAT, route tables, EKS cluster, managed node group, IAM roles |
-| `terraform/variables.tf` | Region, cluster name, instance type, node count |
-| `terraform/outputs.tf` | Cluster endpoint, kubeconfig command, VPC ID |
+| `terraform/main.tf` | VPC, subnets, IGW, single NAT, route tables, EKS cluster, managed node group, IAM roles, **Jenkins EC2 + security group + key pair** |
+| `terraform/variables.tf` | Region, cluster name, instance type, node count, Jenkins AMI, your IP for SSH |
+| `terraform/outputs.tf` | Cluster endpoint, kubeconfig command, VPC ID, **Jenkins public IP** |
 | `terraform/terraform.tfvars` | Concrete values (gitignored if contains secrets) |
 
 IAM roles (defined directly in `main.tf`):
@@ -282,22 +286,32 @@ IAM roles (defined directly in `main.tf`):
 | EKS cluster role | `eks.amazonaws.com` | `AmazonEKSClusterPolicy` |
 | Node instance role | `ec2.amazonaws.com` | `AmazonEKSWorkerNodePolicy`, `AmazonEKS_CNI_Policy`, `AmazonEC2ContainerRegistryReadOnly` |
 
+Jenkins EC2 (defined directly in `main.tf`):
+
+| Resource | Details |
+|----------|---------|
+| Instance | `t3.medium`, Amazon Linux 2023 AMI, public subnet AZ-A |
+| Security group | Inbound: 8080 (Jenkins UI) + 22 (SSH) from your IP; outbound: all |
+| Key pair | Reference an existing AWS key pair (or create one — manual step) |
+
 No IRSA, no OIDC provider, no service-account-level roles — node role is sufficient for PoC.
 
 #### 2.3 Ansible (post-apply)
 
 | File | Purpose |
 |------|---------|
-| `ansible/inventory.ini` | `localhost ansible_connection=local` |
+| `ansible/inventory.ini` | Two groups: `[local]` (localhost) and `[jenkins]` (EC2 public IP from Terraform output) |
+| `ansible/playbooks/install-tools.yaml` | Ensure `kubectl`, `helm`, `aws-cli` are present on localhost (idempotent) |
 | `ansible/playbooks/configure-eks.yaml` | `aws eks update-kubeconfig`, `kubectl get nodes`, create namespaces (`seyoawe`, `monitoring`) |
-| `ansible/playbooks/install-tools.yaml` | Ensure `kubectl`, `helm`, `aws-cli` are present (idempotent checks) |
+| `ansible/playbooks/configure-jenkins.yaml` | **On Jenkins EC2:** install Docker, start Jenkins container (`jenkins/jenkins:lts`), open firewall, install `kubectl` + `aws-cli` inside the host so pipelines can deploy to EKS |
 
-No Ansible roles directory — two short playbooks are clearer than role scaffolding for three tasks.
+No Ansible roles directory — three short playbooks are clearer than role scaffolding.
 
 #### 2.4 Completion Criteria
 - [ ] `terraform plan` succeeds with no errors
-- [ ] `terraform apply` provisions VPC + EKS
+- [ ] `terraform apply` provisions VPC + EKS + Jenkins EC2
 - [ ] `kubectl get nodes` returns 2 healthy `t3.medium` workers
+- [ ] Jenkins UI accessible at `http://<jenkins-ec2-ip>:8080`
 - [ ] Ansible playbooks run without errors
 - [ ] State is remote in S3 (no local `.tfstate`)
 - [ ] Committed on `feature/phase2-aws-infra`, pushed
@@ -387,27 +401,24 @@ docker run seyoawe-cli:local --help
 **Depends on:** Phase 3
 
 ### Goals
-- Jenkins running locally via Docker (not on EKS — saves cluster cost/complexity)
+- Use the Jenkins EC2 instance provisioned in Phase 2 (configured by Ansible)
 - Engine CI pipeline: lint, test, build, push, tag
 - CLI CI pipeline: lint, pytest, build, push, tag
 - Version coupling: shared `VERSION` file, `scripts/change-detect.sh`, selective builds
 
 ### Tasks
 
-#### 4.1 Jenkins Setup (Local Docker)
+#### 4.1 Jenkins Setup (EC2 — already running from Phase 2)
+
+Jenkins should already be running at `http://<jenkins-ec2-ip>:8080` (provisioned by Terraform, configured by Ansible in Phase 2).
 
 > **MANUAL STEP:**
-> ```bash
-> docker run -d --name jenkins \
->   -p 8082:8080 -p 50000:50000 \
->   -v jenkins_home:/var/jenkins_home \
->   -v /var/run/docker.sock:/var/run/docker.sock \
->   jenkins/jenkins:lts
-> ```
-> Install plugins: Pipeline, Git, Docker Pipeline, Credentials Binding.
-> Add credentials:
-> 1. `dockerhub-creds` — DockerHub username + token
-> 2. `github-token` — GitHub PAT
+> 1. Open `http://<jenkins-ec2-ip>:8080` in your browser
+> 2. Retrieve initial admin password: `ssh ec2-user@<ip> "docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword"`
+> 3. Install suggested plugins + add: Docker Pipeline, Credentials Binding
+> 4. Add credentials:
+>    - `dockerhub-creds` — DockerHub username + token
+>    - `github-token` — GitHub PAT
 
 #### 4.2 Version Coupling Logic
 
@@ -463,7 +474,7 @@ Stages: Checkout → Read VERSION → Change Detection → Lint (flake8) → Uni
 
 ### Goals
 - Deploy Engine to EKS as a StatefulSet with health probes and persistent storage
-- Jenkins CD pipeline: Terraform → Ansible → kubectl apply
+- Jenkins CD pipeline (running on EC2): Terraform → Ansible → kubectl apply
 
 ### K8s Architecture
 
@@ -573,13 +584,12 @@ Estimated monthly cost if left running 24/7 in `us-east-1` (tear down after demo
 | Resource | Monthly estimate |
 |----------|-----------------|
 | EKS control plane | $73 |
-| 2 × t3.medium (on-demand) | ~$60 |
+| 2 × t3.medium EKS nodes (on-demand) | ~$60 |
+| 1 × t3.medium Jenkins EC2 (on-demand) | ~$30 |
 | 1 × NAT Gateway + data | ~$35 |
 | S3 (state, negligible) | < $1 |
-| EBS (PVCs, ~20 GiB gp3) | ~$2 |
-| **Total** | **~$171/month** |
-
-**Savings vs. original plan:** ~$65/month (removed second NAT, third node, DynamoDB, bastion).
+| EBS (PVCs + Jenkins root, ~30 GiB gp3) | ~$3 |
+| **Total** | **~$202/month** |
 
 **Recommendation:** Run `terraform destroy` after each working session; re-apply takes ~15 minutes. This brings real cost to a few dollars total.
 
