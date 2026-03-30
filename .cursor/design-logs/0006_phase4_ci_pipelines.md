@@ -147,4 +147,18 @@ Jenkins EC2 (`44.201.6.188`) needs:
 
 ## Implementation Results
 
-_(Append only after pipeline execution.)_
+**When:** 2026-03-30
+
+### Setup completed
+
+- `scripts/version.sh` — verified locally, outputs `APP_VERSION=0.1.0` ✅
+- `scripts/change-detect.sh` — verified locally, correctly classifies changed files ✅
+- `ansible/playbooks/configure-jenkins-tools.yaml` — ran against EC2, `shellcheck` + `yamllint 1.37.1` installed ✅
+- `seyoawe.linux` binary placed at `/home/ec2-user/seyoawe.linux` on Jenkins EC2 ✅
+- Jenkins credentials configured:
+  - `dockerhub-creds` (Username with password) ✅
+  - `github-token` (Secret text) ✅
+  - `dockerhub-user` (Secret text) ✅
+  - `aws-credentials` (Username with password) ✅
+
+### Pipeline execution — pending first build run
