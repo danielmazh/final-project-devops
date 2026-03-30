@@ -58,7 +58,7 @@ pipeline {
                 sh '''
                     echo "=== flake8 ==="
                     pip3 install flake8 --quiet --break-system-packages 2>/dev/null || pip3 install flake8 --quiet
-                    flake8 cli/ --max-line-length=120 --exclude=cli/tests/
+                    flake8 cli/
                 '''
             }
         }

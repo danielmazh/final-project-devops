@@ -528,8 +528,6 @@ def init_workflow(args):
     print(f"[INIT] Workflow created at {path}")
 
 
-
-
 # === CLI SETUP ===
 def main():
     parser = argparse.ArgumentParser(
@@ -577,7 +575,6 @@ def main():
     p_wf.add_argument("--workflows-path", help="Path to workflows dir", default="workflows")
     p_wf.add_argument("--trigger", help="Trigger type (api, git, scheduled, etc)", default="api")
     p_wf.set_defaults(func=init_workflow)
-
 
     args = parser.parse_args()
 
