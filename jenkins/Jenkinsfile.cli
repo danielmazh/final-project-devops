@@ -5,10 +5,6 @@
 pipeline {
     agent any
 
-    environment {
-        // IMAGE_NAME is resolved per-stage via dockerhub-creds username
-    }
-
     stages {
 
         stage('Checkout') {
