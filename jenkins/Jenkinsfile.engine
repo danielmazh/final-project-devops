@@ -6,7 +6,7 @@ pipeline {
     agent any
 
     environment {
-        BINARY_SRC = "/home/ec2-user/seyoawe.linux"
+        BINARY_SRC = "/var/jenkins_home/seyoawe.linux"
     }
 
     stages {
