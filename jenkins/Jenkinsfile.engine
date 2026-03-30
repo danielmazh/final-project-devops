@@ -31,11 +31,14 @@ pipeline {
         stage('Change Detection') {
             steps {
                 script {
+                    // Use GIT_PREVIOUS_SUCCESSFUL_COMMIT to cover all commits since
+                    // the last successful build. Fall back to last 5 commits on first run.
+                    def baseRef = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: 'HEAD~5'
                     def changed = sh(
-                        script: "git diff HEAD~1 --name-only 2>/dev/null || git diff-tree --no-commit-id -r --name-only HEAD",
+                        script: "git diff ${baseRef} HEAD --name-only 2>/dev/null || git diff-tree --no-commit-id -r --name-only HEAD",
                         returnStdout: true
                     ).trim()
-                    echo "Changed files:\n${changed}"
+                    echo "Changed files since ${baseRef}:\n${changed}"
 
                     env.BUILD_ENGINE = (
                         changed.contains('VERSION') ||
