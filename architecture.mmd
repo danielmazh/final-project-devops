@@ -1,0 +1,101 @@
+%%{ init: { "theme": "base", "themeVariables": { "primaryColor": "#2d3748", "primaryTextColor": "#fff", "primaryBorderColor": "#4a5568", "lineColor": "#718096", "secondaryColor": "#edf2f7", "tertiaryColor": "#e2e8f0", "fontFamily": "monospace" } } }%%
+
+graph TB
+
+    %% ── Developer ───────────────────────────────────────────────────
+    DEV["<b>Developer Workstation</b><br/>.venv → terraform, kubectl, helm, aws, ansible, pytest<br/>lifecycle.sh → stop / start / destroy"]
+
+    DEV -->|"git push"| GH
+    DEV -->|"kubectl / helm"| EKS
+    DEV -->|"terraform apply"| TF_STATE
+
+    %% ── Source Control ──────────────────────────────────────────────
+    GH["<b>GitHub</b><br/>Tags: engine-v0.1.1, cli-v0.1.1, deploy-v0.1.1"]
+
+    GH -->|"webhook / poll"| JENKINS
+
+    %% ── CI/CD Server ────────────────────────────────────────────────
+    subgraph AWS_PUB ["AWS — Public Subnet (10.0.1.0/24)"]
+        JENKINS["<b>Jenkins EC2</b><br/>t3.medium · Amazon Linux 2023<br/>3 Pipelines: engine-ci, cli-ci, cd"]
+        NAT["<b>NAT Gateway</b><br/>Single (PoC cost saving)"]
+    end
+
+    JENKINS -->|"docker push<br/>engine:0.1.1 + cli:0.1.1"| DOCKER
+    JENKINS -->|"kubectl apply"| EKS
+    JENKINS -->|"terraform plan → approve → apply"| TF_STATE
+
+    %% ── Container Registry ──────────────────────────────────────────
+    DOCKER["<b>DockerHub</b><br/>danielmazh/seyoawe-engine<br/>danielmazh/seyoawe-cli<br/>Tags: 0.1.1, latest"]
+
+    DOCKER -->|"image pull"| EKS
+
+    %% ── Terraform State ─────────────────────────────────────────────
+    TF_STATE["<b>S3 Bucket</b><br/>seyoawe-tf-state-632008729195<br/>Terraform remote state<br/>S3-native lock (no DynamoDB)"]
+
+    %% ── EKS Cluster ─────────────────────────────────────────────────
+    subgraph AWS_PRIV ["AWS — Private Subnets (10.0.10.0/24, 10.0.20.0/24)"]
+        subgraph EKS ["<b>EKS seyoawe-cluster v1.32</b><br/>2× t3.medium worker nodes"]
+
+            subgraph NS_APP ["Namespace: seyoawe"]
+                STS["<b>StatefulSet</b><br/>seyoawe-engine-0<br/>1 replica"]
+                SVC["<b>Service</b><br/>ClusterIP :8080 / :8081"]
+                CM["<b>ConfigMap</b><br/>seyoawe-config<br/>config.yaml (subPath)"]
+                PVC["<b>PVC 2Gi gp2</b><br/>data-seyoawe-engine-0<br/>lifetimes + logs"]
+            end
+
+            subgraph NS_MON ["Namespace: monitoring"]
+                PROM["<b>Prometheus</b><br/>1 replica · 5Gi PVC<br/>14 scrape targets"]
+                GRAF["<b>Grafana</b><br/>28 pre-built dashboards<br/>admin / seyoawe-grafana"]
+                ALERT["<b>Alertmanager</b><br/>1 replica"]
+                SM["<b>ServiceMonitor</b><br/>seyoawe-engine → :8080/metrics"]
+            end
+        end
+
+        CSI["<b>EBS CSI Driver</b><br/>IRSA → AmazonEBSCSIDriverPolicy"]
+    end
+
+    %% ── Connections inside cluster ──────────────────────────────────
+    SVC --> STS
+    CM -.->|"subPath mount"| STS
+    PVC -.->|"/app/data"| STS
+    CSI -.->|"provisions EBS"| PVC
+    SM -->|"scrape :8080"| SVC
+    PROM --> SM
+    PROM --> GRAF
+
+    NAT -->|"outbound internet<br/>for private subnets"| EKS
+
+    %% ── CI Pipeline Detail ──────────────────────────────────────────
+    subgraph CI_FLOW ["CI / CD Pipeline Flow"]
+        direction LR
+        C1["Checkout +<br/>Read VERSION"]
+        C2["Change Detection<br/>git diff"]
+        C3["Lint<br/>yamllint · shellcheck · flake8"]
+        C4["Test<br/>13 pytest"]
+        C5["Docker Build<br/>+ Push"]
+        C6["Git Tag<br/>engine-v / cli-v"]
+        C7["CD: TF Plan →<br/>⏸ Approve → Apply"]
+        C8["kubectl deploy<br/>+ Rollout Verify"]
+
+        C1 --> C2 --> C3 --> C4 --> C5 --> C6
+        C6 -.-> C7 --> C8
+    end
+
+    GH --> CI_FLOW
+    CI_FLOW --> DOCKER
+    CI_FLOW --> EKS
+
+    %% ── Styling ─────────────────────────────────────────────────────
+    classDef aws fill:#ff9900,stroke:#cc7a00,color:#fff,font-weight:bold
+    classDef k8s fill:#326ce5,stroke:#1a4db5,color:#fff,font-weight:bold
+    classDef mon fill:#e6522c,stroke:#b33d1f,color:#fff,font-weight:bold
+    classDef tool fill:#2d3748,stroke:#4a5568,color:#fff
+    classDef storage fill:#3b82f6,stroke:#2563eb,color:#fff
+    classDef ci fill:#10b981,stroke:#059669,color:#fff,font-weight:bold
+
+    class JENKINS,NAT aws
+    class STS,SVC,CM,PVC,CSI k8s
+    class PROM,GRAF,ALERT,SM mon
+    class DEV,GH,DOCKER tool
+    class TF_STATE storage
+    class C1,C2,C3,C4,C5,C6,C7,C8 ci
