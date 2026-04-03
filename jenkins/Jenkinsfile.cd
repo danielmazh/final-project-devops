@@ -139,24 +139,38 @@ pipeline {
 
         stage('K8s: Deploy') {
             steps {
-                sh """
-                    kubectl apply -f k8s/namespace.yaml
-                    kubectl apply -f k8s/engine/
-                """
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh """
+                        unset AWS_PROFILE
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
+                        kubectl apply -f k8s/namespace.yaml
+                        kubectl apply -f k8s/engine/
+                    """
+                }
             }
         }
 
         stage('K8s: Update Image') {
             steps {
-                script {
-                    def engineImage = sh(
-                        script: "cat terraform/terraform.tfvars 2>/dev/null | grep dockerhub_user | awk -F'\"' '{print \$2}' || echo 'seyoawe'",
-                        returnStdout: true
-                    ).trim()
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
                     sh """
-                        kubectl set image statefulset/seyoawe-engine \\
-                            engine=\$(cat /dev/stdin <<< "\$(kubectl get sts seyoawe-engine -n ${NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].image}' | sed 's|:.*|:${APP_VERSION}|')") \\
-                            -n ${NAMESPACE} || \\
+                        unset AWS_PROFILE
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
+                        kubectl set image statefulset/seyoawe-engine \
+                            engine=danielmazh/seyoawe-engine:${APP_VERSION} \
+                            -n ${NAMESPACE} || \
                         kubectl rollout restart statefulset/seyoawe-engine -n ${NAMESPACE}
                     """
                 }
@@ -165,11 +179,21 @@ pipeline {
 
         stage('K8s: Verify Rollout') {
             steps {
-                sh """
-                    kubectl rollout status statefulset/seyoawe-engine \\
-                        -n ${NAMESPACE} --timeout=300s
-                    kubectl get pods -n ${NAMESPACE}
-                """
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh """
+                        unset AWS_PROFILE
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
+                        kubectl rollout status statefulset/seyoawe-engine \
+                            -n ${NAMESPACE} --timeout=300s
+                        kubectl get pods -n ${NAMESPACE}
+                    """
+                }
             }
         }
 
