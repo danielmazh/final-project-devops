@@ -65,13 +65,25 @@ pipeline {
                         export AWS_DEFAULT_REGION=${AWS_REGION}
                         cd ${TF_DIR} && terraform plan -out=tfplan -input=false \
                             -var="jenkins_key_pair=${TF_KEY_PAIR}" \
-                            -var="operator_ip=${TF_OPERATOR_IP}"
+                            -var="operator_ip=${TF_OPERATOR_IP}" \
+                            -detailed-exitcode || TF_EXIT=\$?
+
+                        if [ "\${TF_EXIT:-0}" = "0" ]; then
+                            echo "PLAN_HAS_CHANGES=false" > /tmp/tf_plan_result
+                        else
+                            echo "PLAN_HAS_CHANGES=true" > /tmp/tf_plan_result
+                        fi
                     """
+                    script {
+                        env.PLAN_HAS_CHANGES = sh(script: "grep -q 'true' /tmp/tf_plan_result && echo true || echo false", returnStdout: true).trim()
+                        echo "Infrastructure changes detected: ${env.PLAN_HAS_CHANGES}"
+                    }
                 }
             }
         }
 
         stage('Approval: Terraform Apply') {
+            when { environment name: 'PLAN_HAS_CHANGES', value: 'true' }
             steps {
                 input message: "Review the Terraform plan above. Approve to apply infrastructure changes?",
                       ok: "Apply"
@@ -79,6 +91,7 @@ pipeline {
         }
 
         stage('Terraform Apply') {
+            when { environment name: 'PLAN_HAS_CHANGES', value: 'true' }
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'aws-credentials',
