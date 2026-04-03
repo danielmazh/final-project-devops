@@ -5,6 +5,23 @@
 **Daniel Mazmazhbits**  
 **Version:** `0.1.1` | **Date:** March 2026
 
+### Quick Navigation
+
+| # | Section | Highlights |
+|--:|---------|------------|
+| [1](#slide-1--introduction--project-architecture) | Introduction & Architecture | Project overview, PoC philosophy, architecture diagram, UI access points |
+| [2](#slide-2--phase-1-repository--environment-setup) | Repo & Environment Setup | VERSION file, setup-env.sh, 8 Design Logs |
+| [3](#slide-3--phase-2--5-infrastructure-as-code--cd-pipeline) | IaC & CD Pipeline | Terraform (31 resources), VPC, EKS, IRSA, Ansible, lifecycle.sh, CD Approval Gate |
+| [4](#slide-4--phase-3-containerization--testing) | Containerization & Testing | 2 Dockerfiles, binary guard, HEALTHCHECK, 13 pytest tests |
+| [5](#slide-5--phase-4-ci-continuous-integration-pipelines--version-coupling) | CI Pipelines & Version Coupling | Engine CI, CLI CI, change detection, git tagging |
+| [6](#slide-6--phase-5-k8s-kubernetes-deployment) | K8s Deployment | StatefulSet, Service, ConfigMap, PVC 2Gi, EBS CSI via IRSA |
+| [7](#slide-7--phase-6-observability-bonus) | Observability Bonus | kube-prometheus-stack, Grafana (28 dashboards), Prometheus (14 targets), ServiceMonitor |
+| [8](#slide-8--summary--requirements-traceability) | Summary & Traceability | Requirements mapping (105/100 pts), PoC principles, tool versions |
+| [9](#slide-9--full-repository-structure) | Repository Structure | Full annotated file tree with purpose comments |
+| [10](#slide-10--end-to-end-live-flow-demo) | End-to-End Live Demo | 8-step lifecycle walkthrough: stack health → app → monitoring → cost |
+| [11](#slide-11--live-trigger-test-watch-the-pipeline-fire-in-real-time) | Live Trigger Test | Push a code change, watch CI/CD fire automatically, verify DockerHub + tags |
+| [12](#slide-12--questions) | Questions | Q&A, quick full-stack verification command |
+
 ---
 
 ## Slide 1 — Introduction & Project Architecture
@@ -1113,74 +1130,83 @@ kill %1
 
 ```
 final-project-devops/
-├── .cursor/
-│   ├── design-logs/             # 8 Design Logs (0001–0008)
-│   ├── diagrams-mmd/            # 11 Mermaid architecture diagrams
-│   ├── plans/                   # Master project plan
-│   ├── reports/                 # Technical report + traceability matrix
-│   └── rules/                   # Cursor rules (design-log, resource-registry)
 │
-├── ansible/                     # Configuration Management
-│   ├── inventory.ini            #   Host inventory (local + jenkins groups)
+├── .cursor/                     ── Project documentation & design artifacts
+│   ├── design-logs/             # 8 formal design specs written BEFORE implementation (design-first methodology)
+│   │   ├── 0001_phase1_repo_setup.md         # Directory layout decisions, VERSION file strategy
+│   │   ├── 0002_phase2_aws_infra.md          # VPC topology, EKS vs self-managed K8s, NAT trade-offs
+│   │   ├── 0003_lifecycle_management_script.md # Resource Registry pattern, stop/start/destroy flows
+│   │   ├── 0004_project_venv_setup.md        # Tool pinning, per-project AWS creds, venv patching
+│   │   ├── 0005_phase3_containerization.md   # Binary guard, HEALTHCHECK strategy, sed injection
+│   │   ├── 0006_phase4_ci_pipelines.md       # Change detection logic, when-condition pattern
+│   │   ├── 0007_phase5_cd_kubernetes.md      # StatefulSet vs Deployment, tcpSocket probes, IRSA
+│   │   └── 0008_phase6_observability.md      # kube-prometheus sizing, quay.io→docker.io workaround
+│   ├── diagrams-mmd/            # 11 Mermaid diagrams visualizing architecture and flows
+│   ├── plans/                   # Master project plan with phases and acceptance criteria
+│   └── reports/                 # Technical report + requirements traceability matrix
+│
+├── ansible/                     ── Post-provisioning configuration (runs AFTER Terraform creates resources)
+│   ├── inventory.ini            # Defines 2 host groups: [local] for dev machine, [jenkins] for EC2
 │   └── playbooks/
-│       ├── configure-jenkins.yaml         # Docker + Jenkins container + kubectl + awscli
-│       ├── configure-jenkins-tools.yaml   # shellcheck + yamllint for CI lint stages
-│       ├── configure-eks.yaml             # kubeconfig + namespace creation
-│       └── install-tools.yaml             # verify all DevOps tool versions
+│       ├── configure-jenkins.yaml         # Installs Docker, runs Jenkins LTS container, sets up kubectl + awscli
+│       ├── configure-jenkins-tools.yaml   # Adds shellcheck + yamllint into Jenkins container for CI lint stages
+│       ├── configure-eks.yaml             # Updates kubeconfig, waits for cluster API, creates seyoawe + monitoring namespaces
+│       └── install-tools.yaml             # Prints all tool versions for verification (terraform, kubectl, helm, aws, ansible)
 │
-├── cli/                         # sawectl CLI (Command-Line Interface) Tool (Python)
-│   ├── sawectl.py               #   CLI entrypoint (validate-workflow/module, list-modules)
-│   ├── requirements.txt         #   Python deps (pyyaml, jsonschema, requests)
-│   ├── dsl.schema.json          #   Workflow validation JSON Schema
-│   ├── module.schema.json       #   Module manifest validation JSON Schema
+├── cli/                         ── sawectl: Python CLI tool for workflow/module validation
+│   ├── sawectl.py               # Main entrypoint — 3 subcommands: validate-workflow, validate-module, list-modules
+│   ├── requirements.txt         # Python dependencies: pyyaml, jsonschema, requests
+│   ├── dsl.schema.json          # JSON Schema that defines valid workflow YAML structure (fields, steps, triggers)
+│   ├── module.schema.json       # JSON Schema that defines valid module manifest structure (name, version, entrypoint)
 │   └── tests/
-│       ├── conftest.py          #   sys.path setup + shared path constants
-│       └── test_sawectl.py      #   13 tests across 5 classes (<2s)
+│       ├── conftest.py          # Adds cli/ to sys.path and exports shared path constants for all test files
+│       └── test_sawectl.py      # 13 unit tests across 5 classes — validates YAML loading, schemas, version, CLI, modules
 │
-├── docker/                      # Dockerfiles
-│   ├── engine/Dockerfile        #   python:3.11-slim, binary guard, HEALTHCHECK, symlink
-│   └── cli/Dockerfile           #   python:3.11-slim, version injection via sed
+├── docker/                      ── Dockerfiles for containerizing both application components
+│   ├── engine/Dockerfile        # Builds the engine image: binary guard, symlink trick, HEALTHCHECK, 2 exposed ports
+│   └── cli/Dockerfile           # Builds the CLI image: pip install cached layer, sed version injection at build time
 │
-├── engine/                      # SeyoAWE Engine (upstream app + config)
-│   ├── configuration/config.yaml#   Engine configuration (ports, modules, logging)
-│   ├── modules/                 #   Python modules (api, chatbot, slack, email, git, etc.)
-│   ├── workflows/               #   YAML workflow definitions (samples + community)
-│   └── run.sh                   #   Binary launcher script (linux/macos)
+├── engine/                      ── SeyoAWE Engine: the upstream Go binary + Python modules + config
+│   ├── configuration/
+│   │   └── config.yaml          # Engine runtime config: logging, ports, module dispatcher, module defaults
+│   ├── modules/                 # Python automation modules: api, chatbot, slack, email, git, etc.
+│   ├── workflows/               # YAML workflow definitions: samples/ for testing, community/ for production
+│   └── run.sh                   # Shell launcher that detects OS and runs the correct binary (linux/macos)
 │
-├── jenkins/                     # CI/CD (Continuous Integration/Delivery) Pipeline Definitions
-│   ├── Jenkinsfile.engine       #   Engine CI: lint → build → push → tag (155 lines)
-│   ├── Jenkinsfile.cli          #   CLI CI: lint → test → build → push → tag (143 lines)
-│   └── Jenkinsfile.cd           #   CD: TF plan → approve → apply → deploy (164 lines)
+├── jenkins/                     ── 3 Groovy Declarative Pipelines defining the entire CI/CD flow
+│   ├── Jenkinsfile.engine       # Engine CI (155 lines, 8 stages): lint → prepare binary → docker build/push → git tag
+│   ├── Jenkinsfile.cli          # CLI CI (143 lines, 8 stages): lint → 13 pytest → docker build/push → git tag
+│   └── Jenkinsfile.cd           # CD (164 lines, 10 stages): TF plan → MANUAL APPROVAL → apply → ansible → k8s deploy → verify
 │
-├── k8s/                         # K8s (Kubernetes) Manifests
-│   ├── namespace.yaml           #   Namespaces: seyoawe + monitoring
+├── k8s/                         ── Kubernetes manifests for deploying the app on EKS
+│   ├── namespace.yaml           # Creates 2 namespaces (seyoawe + monitoring), both labeled project=seyoawe
 │   └── engine/
-│       ├── statefulset.yaml     #   1 replica, tcpSocket probes, PVC 2Gi gp2 (82 lines)
-│       ├── service.yaml         #   ClusterIP, ports 8080 + 8081 (22 lines)
-│       └── configmap.yaml       #   Engine config.yaml injection via subPath (68 lines)
+│       ├── statefulset.yaml     # 1-replica StatefulSet with tcpSocket probes, 2Gi PVC, ConfigMap subPath mount
+│       ├── service.yaml         # ClusterIP Service exposing ports 8080 (API) and 8081 (dispatcher) inside the cluster
+│       └── configmap.yaml       # Injects config.yaml into the pod — logging, directories, app settings, module defaults
 │
-├── monitoring/                  # Observability Stack
-│   ├── kube-prometheus-values.yaml    # Helm values: PoC-tuned, docker.io mirrors (105 lines)
-│   └── servicemonitor-engine.yaml     # Scrape seyoawe-engine:8080/metrics (22 lines)
+├── monitoring/                  ── Observability stack configuration (Prometheus + Grafana + Alertmanager)
+│   ├── kube-prometheus-values.yaml    # Helm values: 1-replica everything, reduced resources for PoC, docker.io mirrors
+│   └── servicemonitor-engine.yaml     # Tells Prometheus to scrape seyoawe-engine:8080/metrics every 30s
 │
-├── scripts/                     # Automation Scripts
-│   ├── change-detect.sh         #   BUILD_ENGINE / BUILD_CLI flag logic (57 lines)
-│   └── version.sh               #   Read VERSION → export APP_VERSION (24 lines)
+├── scripts/                     ── Shared automation scripts used by CI pipelines and developers
+│   ├── change-detect.sh         # Classifies git changes into BUILD_ENGINE / BUILD_CLI flags for smart CI skipping
+│   └── version.sh               # Reads VERSION file, validates non-empty, exports APP_VERSION for downstream use
 │
-├── terraform/                   # IaC (Infrastructure as Code)
-│   ├── backend.tf               #   S3 backend + use_lockfile, no DynamoDB (23 lines)
-│   ├── main.tf                  #   VPC, EKS, Jenkins, IRSA, addons (412 lines)
-│   ├── variables.tf             #   7 variables: region, cluster, instances, IP (40 lines)
-│   └── outputs.tf               #   7 outputs: IPs, ARNs, kubeconfig cmd (35 lines)
+├── terraform/                   ── IaC: the entire AWS infrastructure defined as code (Flat Layout)
+│   ├── backend.tf               # S3 remote state backend with native locking (use_lockfile=true, no DynamoDB)
+│   ├── main.tf                  # All 31 resources: VPC, subnets, NAT, EKS, node group, IRSA, Jenkins EC2, SG, addons
+│   ├── variables.tf             # 7 input variables: region, cluster name, instance types, key pair, operator IP
+│   └── outputs.tf               # 7 outputs: cluster endpoint, Jenkins IP/URL, VPC ID, EBS CSI role ARN, kubeconfig cmd
 │
-├── VERSION                      #   0.1.1 — Single Source of Truth for all pipelines
-├── lifecycle.sh                 #   AWS resource lifecycle manager (387 lines)
-├── setup-env.sh                 #   One-command environment bootstrap (241 lines)
-├── requirements-infra.txt       #   Python infra deps (awscli, ansible, pytest, flake8, etc.)
-├── .dockerignore                #   Exclude .venv, .git, terraform/ from Docker context
-├── .flake8                      #   Python linting configuration
-├── .gitignore                   #   Standard ignores + .aws-project/, .venv/
-└── README.md                    #   Full project documentation (189 lines)
+├── VERSION                      # Single Source of Truth — every pipeline reads this; change triggers both CI pipelines
+├── lifecycle.sh                 # Resource lifecycle manager: status/stop/start/destroy with cost estimation (387 lines)
+├── setup-env.sh                 # One-command dev environment bootstrap: downloads all tools into .venv (241 lines)
+├── requirements-infra.txt       # Python infra dependencies: awscli, ansible, pytest, flake8, yamllint, etc.
+├── .dockerignore                # Keeps .venv, .git, terraform/, .aws-project/ out of Docker build context
+├── .flake8                      # Python linting rules used by flake8 in the CLI CI pipeline
+├── .gitignore                   # Ignores .venv/, .aws-project/, __pycache__/, terraform state files, etc.
+└── README.md                    # Full project documentation: architecture, quick start, access points, cost management
 ```
 
 ---
