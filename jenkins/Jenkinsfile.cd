@@ -96,7 +96,7 @@ pipeline {
             }
         }
 
-        stage('Ansible: Configure Cluster') {
+        stage('Configure Cluster') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'aws-credentials',
@@ -108,9 +108,17 @@ pipeline {
                         export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
                         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
                         export AWS_DEFAULT_REGION=${AWS_REGION}
-                        ansible-playbook ansible/playbooks/configure-eks.yaml \\
-                            -i ansible/inventory.ini \\
-                            -e aws_profile=""
+
+                        aws eks update-kubeconfig \
+                            --name ${CLUSTER_NAME} \
+                            --region ${AWS_REGION}
+
+                        kubectl cluster-info
+
+                        kubectl create namespace seyoawe \
+                            --dry-run=client -o yaml | kubectl apply -f -
+                        kubectl create namespace monitoring \
+                            --dry-run=client -o yaml | kubectl apply -f -
                     """
                 }
             }
