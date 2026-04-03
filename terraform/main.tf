@@ -406,5 +406,9 @@ resource "aws_instance" "jenkins" {
     encrypted   = true
   }
 
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
   tags = merge(local.tags, { Name = "seyoawe-jenkins" })
 }
