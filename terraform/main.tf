@@ -390,6 +390,17 @@ resource "aws_security_group" "jenkins" {
   tags = merge(local.tags, { Name = "seyoawe-jenkins-sg" })
 }
 
+# Allow Jenkins to reach the EKS API (port 443) for kubectl from the CD pipeline
+resource "aws_security_group_rule" "jenkins_to_eks_api" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.jenkins.id
+  description              = "Jenkins CD pipeline to EKS API"
+}
+
 # ── Jenkins EC2 ───────────────────────────────────────────────────────────────
 
 resource "aws_instance" "jenkins" {
