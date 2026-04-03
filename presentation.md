@@ -365,9 +365,11 @@ Four playbooks handle post-provisioning configuration:
 > # Expected: Terraform v1.14.0, kubectl v1.34.1, Helm v3.17.0, etc.
 > ```
 
-#### CD (Continuous Delivery) Pipeline — `Jenkinsfile.cd`
+#### CD (Continuous Delivery) Pipeline — `Jenkinsfile.cd` (164 lines, 10 stages)
 
-The pipeline has 10 stages with a deliberate human approval gate:
+**Purpose:** End-to-end deployment pipeline that provisions infrastructure (Terraform), configures it (Ansible), deploys the application (kubectl), and verifies the rollout. Includes a **Manual Approval Gate** so an operator must review the Terraform plan before any infrastructure changes are applied.
+
+**Credentials used:** `aws-credentials` (AWS API access), `github-token` (push deploy tags), `dockerhub-creds` (image reference)
 
 ```
 Checkout → Read VERSION → Terraform Init → Terraform Plan → ⏸ Manual Approval
@@ -375,15 +377,26 @@ Checkout → Read VERSION → Terraform Init → Terraform Plan → ⏸ Manual A
 → kubectl Rollout Verify → Git Tag (deploy-v0.1.1)
 ```
 
-**Manual Approval Gate** (`input` step) — The pipeline pauses after `terraform plan` and presents the plan output to the operator. The operator must click "Apply" to proceed. This is a critical safety mechanism that prevents unreviewed infrastructure changes. The `input` stage uses the message: `"Review the Terraform plan above. Approve to apply infrastructure changes?"`.
+| # | Stage | Purpose | What it does |
+|---|-------|---------|--------------|
+| 1 | **Checkout** | Pull the latest code including Terraform and K8s manifests | `checkout scm` |
+| 2 | **Read VERSION** | Establish the version to deploy | Reads `VERSION` file → `env.APP_VERSION = 0.1.1` — used for image tags and deploy tag |
+| 3 | **Terraform Init** | Initialize the Terraform backend and download providers | `cd terraform && terraform init -input=false` — connects to the S3 remote state backend |
+| 4 | **Terraform Plan** | Generate a change plan without modifying anything | `terraform plan -out=tfplan -input=false` — the plan output is displayed in the Jenkins console for the operator to review |
+| 5 | **⏸ Approval** | **Human safety gate** — prevents unreviewed infra changes | `input` step: pipeline pauses and shows _"Review the Terraform plan above. Approve to apply infrastructure changes?"_ — operator must click **"Apply"** to continue |
+| 6 | **Terraform Apply** | Execute the approved infrastructure changes | `terraform apply -auto-approve tfplan` — applies only the exact plan that was reviewed (saved plan file) |
+| 7 | **Ansible Configure** | Update kubeconfig and verify cluster connectivity | `ansible-playbook configure-eks.yaml` — runs `aws eks update-kubeconfig`, waits for API, verifies nodes Ready, creates namespaces |
+| 8 | **K8s Deploy** | Apply all Kubernetes manifests | `kubectl apply -f k8s/namespace.yaml` + `kubectl apply -f k8s/engine/` — creates/updates the StatefulSet, Service, and ConfigMap |
+| 9 | **K8s Update Image** | Pin the container to the exact VERSION being deployed | `kubectl set image` or `kubectl rollout restart` — ensures the pod pulls the `seyoawe-engine:0.1.1` image matching VERSION |
+| 10 | **K8s Verify Rollout** | Confirm the new pod is healthy before declaring success | `kubectl rollout status statefulset/seyoawe-engine --timeout=300s` + `kubectl get pods` — waits up to 5 min for the pod to reach Running 1/1 |
+| 11 | **Git Tag: Deploy** | Mark the deployed commit in Git history | Creates annotated tag `deploy-v0.1.1` with message "Deployed v0.1.1 to EKS", pushes to GitHub; idempotent with `|| true` |
 
-After applying infrastructure, the pipeline runs `ansible-playbook configure-eks.yaml` to update kubeconfig, then applies the K8s manifests (`kubectl apply -f k8s/namespace.yaml` + `kubectl apply -f k8s/engine/`), updates the container image to the current VERSION, and verifies the rollout with `kubectl rollout status statefulset/seyoawe-engine --timeout=300s`. Finally, it creates and pushes a `deploy-v{VERSION}` git tag.
+**Post actions:** `success` → prints "CD pipeline complete — v0.1.1 deployed to EKS cluster seyoawe-cluster". `failure` → prints warning that infrastructure may be in partial state.
 
 > **Verify — CD Pipeline & Deployment:**
 > ```bash
 > # 🔗 Open the Jenkins CD pipeline page — shows the stage view with Manual Approval Gate
-> JENKINS_IP=$(cd terraform && terraform output -raw jenkins_public_ip)
-> open http://${JENKINS_IP}:8080/job/cd/
+> open "http://$(cd terraform && terraform output -raw jenkins_public_ip):8080/job/cd/"
 > # → What to show: Pipeline stage view with colored boxes for each stage
 > # → Click into a completed build → show the "Review the Terraform plan" approval prompt
 > # → Show all stages green (Checkout → VERSION → TF Init → TF Plan → Approval → Apply → ...)
@@ -481,7 +494,7 @@ terraform state list
 #   aws_vpc.main
 
 # 3. 🔗 Open Jenkins UI — browse all 3 pipelines and show the CD Manual Approval Gate
-open http://$(terraform output -raw jenkins_public_ip):8080
+open "http://$(cd terraform && terraform output -raw jenkins_public_ip):8080"
 # → What to show: Dashboard → click "cd" job → Stage View → the ⏸ Approval step
 # → Click into a completed build and show the "Review the Terraform plan" prompt
 
@@ -627,35 +640,53 @@ env.BUILD_ENGINE = (
 
 **`when` conditions:** Every build/push/tag stage uses `when { environment name: 'BUILD_ENGINE', value: 'true' }`. When no relevant changes are detected, all stages are skipped and Jenkins prints "No engine changes detected — build stages were skipped." in the post block. The pipeline still succeeds (green) — it just does nothing.
 
-#### Engine CI Pipeline — `Jenkinsfile.engine`
+#### Engine CI Pipeline — `Jenkinsfile.engine` (155 lines, 8 stages)
 
-8 stages with conditional execution:
+**Purpose:** Validates, builds, and publishes the Engine Docker image whenever engine source code or the VERSION file changes. Skips entirely when only CLI files change.
+
+**Credentials used:** `dockerhub-creds` (DockerHub login), `github-token` (push git tags to GitHub)
 
 ```
 Checkout → Read VERSION → Change Detection → Lint (yamllint + shellcheck)
 → Prepare Binary → Docker Build → Docker Push → Git Tag (engine-v0.1.1)
 ```
 
-- **Lint:** `yamllint -d relaxed engine/configuration/config.yaml` validates the engine's YAML configuration. `shellcheck engine/run.sh` validates the shell launcher script. Both tools are installed on the Jenkins host via Ansible.
-- **Prepare Binary:** Copies `seyoawe.linux` from `/var/jenkins_home/seyoawe.linux` (pre-placed on the Jenkins host once) into the workspace. This avoids storing the 30MB+ Go binary in Git while ensuring the Docker build always has access to it.
-- **Docker Build:** Builds with the `-f docker/engine/Dockerfile` flag (Dockerfile is separate from the engine source), creates two tags: `danielmazh/seyoawe-engine:0.1.1` (version-pinned) and `danielmazh/seyoawe-engine:latest` (mutable). The `--build-arg VERSION=${APP_VERSION}` passes the version for OCI (Open Container Initiative) image labels.
-- **Docker Push:** Logs into DockerHub via `dockerhub-creds` credential (usernamePassword type), pushes both tags, then explicitly logs out.
-- **Git Tag:** Creates an annotated tag `engine-v0.1.1` with message "Engine CI build v0.1.1" and pushes it to GitHub using the `github-token` credential. Uses `|| true` to gracefully handle the case where the tag already exists (idempotent).
-- **Cleanup:** `post.always` removes the local Docker images (`docker rmi`) to free disk space on the Jenkins host. If `BUILD_ENGINE=false`, prints the skip message.
+| # | Stage | Purpose | What it does |
+|---|-------|---------|--------------|
+| 1 | **Checkout** | Pull the latest code from GitHub | `checkout scm` — Jenkins clones the repo at the commit that triggered the build |
+| 2 | **Read VERSION** | Establish the version for tagging and labeling | Reads `VERSION` file, trims whitespace, stores in `env.APP_VERSION` (e.g. `0.1.1`) |
+| 3 | **Change Detection** | Decide whether to build or skip | Diffs against `GIT_PREVIOUS_SUCCESSFUL_COMMIT`; sets `BUILD_ENGINE=true` if `engine/`, `docker/engine/`, or `VERSION` changed; `false` otherwise |
+| 4 | **Lint** | Catch config/script errors before building | `yamllint -d relaxed` on `config.yaml` (validates YAML syntax) + `shellcheck` on `run.sh` (validates shell script) |
+| 5 | **Prepare Binary** | Make the Go binary available for Docker build | Copies `seyoawe.linux` from `/var/jenkins_home/` into workspace (binary is pre-placed once — too large for Git) |
+| 6 | **Docker Build** | Create the container image with version labels | Builds with `-f docker/engine/Dockerfile`, dual-tags `seyoawe-engine:0.1.1` + `:latest`, passes `--build-arg VERSION` for OCI (Open Container Initiative) labels |
+| 7 | **Docker Push** | Publish the image to the registry | Logs into DockerHub via `dockerhub-creds`, pushes both tags, explicitly logs out |
+| 8 | **Git Tag** | Mark the exact commit that produced this image | Creates annotated tag `engine-v0.1.1`, pushes to GitHub via `github-token`; `|| true` makes it idempotent if tag exists |
 
-#### CLI CI Pipeline — `Jenkinsfile.cli`
+**Post actions:** `always` → removes local images (`docker rmi`) to free Jenkins disk; if `BUILD_ENGINE=false`, prints "No engine changes detected — build stages were skipped." `success` → prints version. `failure` → prints error alert.
 
-8 stages, same change detection pattern:
+#### CLI CI Pipeline — `Jenkinsfile.cli` (143 lines, 8 stages)
+
+**Purpose:** Lints, tests, builds, and publishes the CLI Docker image whenever CLI source code or the VERSION file changes. Includes a full pytest suite with JUnit reporting.
+
+**Credentials used:** `dockerhub-creds` (DockerHub login), `github-token` (push git tags to GitHub)
 
 ```
 Checkout → Read VERSION → Change Detection → Lint (flake8)
 → Unit Tests (13 pytest) → Docker Build → Docker Push → Git Tag (cli-v0.1.1)
 ```
 
-- **Lint:** `flake8 cli/` — Runs the Python linter on the entire CLI directory using settings from `.flake8`.
-- **Unit Tests:** `pytest cli/tests/ -v --junitxml=test-results-cli.xml` — Runs all 13 tests in verbose mode and outputs JUnit XML for Jenkins' test result visualization. The `post.always` block uses `junit allowEmptyResults: true, testResults: 'test-results-cli.xml'` to publish results to the Jenkins Test Report tab.
-- **Docker Build:** Dual-tag `danielmazh/seyoawe-cli:0.1.1` + `danielmazh/seyoawe-cli:latest`. The `--build-arg VERSION=${APP_VERSION}` is used by the `sed` version injection inside the Dockerfile.
-- **Git Tag:** `cli-v0.1.1` — Same pattern as Engine CI.
+| # | Stage | Purpose | What it does |
+|---|-------|---------|--------------|
+| 1 | **Checkout** | Pull the latest code from GitHub | `checkout scm` — identical to Engine CI |
+| 2 | **Read VERSION** | Establish the version for tagging and labeling | Reads `VERSION` file → `env.APP_VERSION = 0.1.1` |
+| 3 | **Change Detection** | Decide whether to build or skip | Sets `BUILD_CLI=true` if `cli/`, `docker/cli/`, or `VERSION` changed; `false` otherwise |
+| 4 | **Lint** | Catch Python style/syntax errors | `flake8 cli/` — runs the Python linter with rules from `.flake8` |
+| 5 | **Unit Tests** | Validate all CLI logic before packaging | `pytest cli/tests/ -v --junitxml=test-results-cli.xml` — runs 13 tests, outputs JUnit XML for Jenkins Test Report tab |
+| 6 | **Docker Build** | Create the container image with injected version | Dual-tags `seyoawe-cli:0.1.1` + `:latest`, `--build-arg VERSION` triggers `sed` version injection inside the Dockerfile |
+| 7 | **Docker Push** | Publish the image to DockerHub | Same flow as Engine: login → push both tags → logout |
+| 8 | **Git Tag** | Mark the exact commit that produced this image | Creates annotated tag `cli-v0.1.1`, pushes to GitHub; idempotent with `|| true` |
+
+**Post actions:** `always` → removes local images + publishes JUnit results (`junit allowEmptyResults: true`). `success` → prints version. `failure` → prints error alert.
 
 #### Supporting Scripts
 
@@ -717,6 +748,48 @@ bash scripts/version.sh
 > Task 5 (continued) — K8s Deployment (10 pts): Application deployed and running on EKS (Elastic Kubernetes Service)
 
 ### Technical Deep-Dive
+
+#### K8s Component Overview
+
+The application is deployed as **5 Kubernetes resources** across 2 namespaces. Each component has a specific role in running and supporting the engine:
+
+| # | Resource | Kind | Namespace | Purpose |
+|---|----------|------|-----------|---------|
+| 1 | **`seyoawe`** | Namespace | — | Isolates all application resources from system and monitoring workloads; labeled `project: seyoawe` for easy querying |
+| 2 | **`monitoring`** | Namespace | — | Isolates the Prometheus/Grafana/Alertmanager stack; keeps observability separate from the app |
+| 3 | **`seyoawe-engine`** | StatefulSet | `seyoawe` | Runs exactly 1 replica of the engine pod (`seyoawe-engine-0`) with stable identity, stable PVC binding, and ordered startup — chosen over Deployment because the engine persists state to disk |
+| 4 | **`seyoawe-engine`** | Service (ClusterIP) | `seyoawe` | Internal load balancer that routes traffic to the engine pod on two named ports: `http` (8080 — main API) and `dispatcher` (8081 — module polling). No external exposure — accessed via `kubectl port-forward` or from within the cluster |
+| 5 | **`seyoawe-config`** | ConfigMap | `seyoawe` | Injects `config.yaml` into the pod at `/app/configuration/config.yaml` using a `subPath` mount — contains logging level, directory paths, app settings, module dispatcher config, and module defaults (chatbot, API, email, Slack, Git) |
+| 6 | **`data-seyoawe-engine-0`** | PVC (PersistentVolumeClaim) | `seyoawe` | Auto-created by the StatefulSet's `volumeClaimTemplates` — provisions a 2Gi `gp2` EBS (Elastic Block Store) volume via the CSI (Container Storage Interface) driver, mounted at `/app/data` for persistent storage of workflow lifetimes and logs |
+
+**How they connect:**
+
+```
+                          ┌─────────────────────────────────────────────┐
+                          │  Namespace: seyoawe                         │
+                          │                                             │
+  kubectl port-forward    │  ┌──────────────────────┐                   │
+  ─────────────────────►  │  │  Service (ClusterIP)  │                  │
+                          │  │  :8080 (http)          │                  │
+                          │  │  :8081 (dispatcher)    │                  │
+                          │  └──────────┬─────────────┘                  │
+                          │             │ selector: app=seyoawe-engine   │
+                          │             ▼                                │
+                          │  ┌──────────────────────┐                   │
+                          │  │  StatefulSet          │                  │
+                          │  │  seyoawe-engine-0     │                  │
+                          │  │                       │                  │
+                          │  │  ┌─── /app/config ◄── ConfigMap         │
+                          │  │  │    config.yaml      (seyoawe-config) │
+                          │  │  │                                      │
+                          │  │  └─── /app/data ◄───── PVC 2Gi gp2     │
+                          │  │       lifetimes/        (EBS volume)    │
+                          │  │       logs/                              │
+                          │  │                                         │
+                          │  │  probes: tcpSocket :8080                │
+                          │  └──────────────────────┘                  │
+                          └─────────────────────────────────────────────┘
+```
 
 #### Why StatefulSet instead of Deployment?
 
@@ -1152,8 +1225,7 @@ git tag -l
 
 ```bash
 # 🔗 Open Jenkins dashboard — the CI/CD command center
-JENKINS_IP=$(cd terraform && terraform output -raw jenkins_public_ip)
-open http://${JENKINS_IP}:8080
+open "http://$(cd terraform && terraform output -raw jenkins_public_ip):8080"
 ```
 
 **What to show on Jenkins UI:**
@@ -1273,7 +1345,126 @@ kubectl get pods -n monitoring && echo "---" && \
 
 ---
 
-## Slide 11 — Questions
+## Slide 11 — Live Trigger Test: Watch the Pipeline Fire in Real-Time
+
+### Goal
+
+Make a **real code change**, push it to GitHub, and watch Jenkins automatically detect it, run the CI pipeline, execute tests, build a Docker image, push it to DockerHub, and create a git tag — all without manual intervention. This is the strongest proof that the entire DevOps lifecycle is wired together.
+
+### Why a CLI Change?
+
+We touch a CLI file (`cli/sawectl.py`) because:
+- It triggers **only** the `cli-ci` pipeline (proves the change detection script correctly identifies CLI-only changes)
+- The `engine-ci` pipeline will **skip all build stages** (proves change detection doesn't over-build)
+- It runs all 13 pytest tests live (visible proof of the test suite)
+- It builds and pushes a new Docker image to DockerHub
+- It creates and pushes a `cli-v0.1.1` git tag
+- It is **100% safe** — does not affect the running application on EKS
+
+### Step-by-Step Live Demo
+
+#### Step 1: Record the "Before" State
+
+```bash
+# Show the current git tags — we will see a new one appear after the pipeline completes
+git tag -l
+# → cli-v0.1.1, engine-v0.1.1
+
+# Show the latest DockerHub push timestamp (note the date — it will update after CI pushes)
+# 🔗 Open: https://hub.docker.com/r/danielmazh/seyoawe-cli/tags
+# → Note the "Last pushed" date on the 0.1.1 and latest tags
+```
+
+#### Step 2: Make a Small, Safe Code Change
+
+```bash
+# Add a harmless comment to the CLI source — this is enough to trigger change detection
+echo "# Live demo change — $(date)" >> cli/sawectl.py
+
+# Verify the change is detected by git
+git diff cli/sawectl.py
+# → Shows the added comment line at the end of the file
+```
+
+#### Step 3: Commit and Push to GitHub
+
+```bash
+# Stage, commit, and push — this is the trigger that starts the entire pipeline
+git add cli/sawectl.py
+git commit -m "demo: live trigger test — CLI change to verify CI pipeline"
+git push origin main
+```
+
+> **What happens next (automatically):**
+> 1. GitHub receives the push
+> 2. Jenkins polls the repo (SCM polling interval: ~1-2 min) or receives a webhook
+> 3. **`cli-ci` pipeline triggers** — detects `cli/sawectl.py` changed under `cli/`
+> 4. **`engine-ci` pipeline triggers** — detects NO engine changes → skips all build stages
+> 5. CLI pipeline runs: Lint (flake8) → Test (13 pytest) → Docker Build → Docker Push → Git Tag
+
+#### Step 4: Watch the Pipeline on Jenkins
+
+```bash
+# 🔗 Open Jenkins dashboard — watch the builds appear in real-time
+open "http://$(cd terraform && terraform output -raw jenkins_public_ip):8080"
+```
+
+**What to show while waiting (~1-2 min for polling):**
+
+1. **Dashboard** → Watch for build #N+1 to appear on both `cli-ci` and `engine-ci`
+2. **Click `cli-ci`** → Watch the Stage View progress in real-time:
+   - ✅ Checkout → ✅ Read VERSION → ✅ Change Detection (`BUILD_CLI=true`)
+   - ✅ Lint (flake8) → ✅ Unit Tests (13 passed) → ✅ Docker Build → ✅ Docker Push → ✅ Git Tag
+3. **Click `engine-ci`** → Watch it complete almost instantly:
+   - ✅ Checkout → ✅ Read VERSION → ✅ Change Detection (`BUILD_ENGINE=false`)
+   - ⏭ All remaining stages **SKIPPED** — "No engine changes detected"
+   - **This is the proof that change detection is smart — it only builds what changed**
+
+> **Tip:** If SCM polling is slow, you can manually click "Build Now" on both pipelines to speed up the demo. The change detection still works the same way.
+
+#### Step 5: Verify the Results
+
+```bash
+# Pull the new git tag that Jenkins just created and pushed
+git pull --tags
+git tag -l
+# → cli-v0.1.1, engine-v0.1.1 (same tag, re-pushed — idempotent)
+
+# 🔗 Open DockerHub and verify the "Last pushed" date updated
+# → https://hub.docker.com/r/danielmazh/seyoawe-cli/tags
+# → The "latest" and "0.1.1" tags should show a fresh push timestamp (just now)
+
+# 🔗 Open DockerHub for Engine and verify it was NOT re-pushed (timestamp unchanged)
+# → https://hub.docker.com/r/danielmazh/seyoawe-engine/tags
+# → The push timestamp should be the SAME as before — engine was correctly skipped
+```
+
+#### Step 6: Clean Up the Demo Change
+
+```bash
+# Remove the demo comment we added — restore the file to its original state
+git checkout cli/sawectl.py
+git add cli/sawectl.py
+git commit -m "revert: remove live demo comment"
+git push origin main
+# This push will trigger another pipeline run, but all stages will skip (no meaningful CLI changes)
+```
+
+### What This Proves to the Examiner
+
+| Requirement | Proof |
+|-------------|-------|
+| **CI Pipeline works** | Jenkins detected the push and ran the full lint → test → build → push → tag flow |
+| **Change Detection is smart** | `cli-ci` built (CLI file changed), `engine-ci` skipped (no engine files changed) |
+| **Testing runs in CI** | 13 pytest tests executed and passed inside the Jenkins pipeline |
+| **Docker images are pushed** | DockerHub `latest` tag timestamp updated for CLI, unchanged for Engine |
+| **Git tagging is automated** | `cli-v0.1.1` tag was created/pushed by Jenkins without manual intervention |
+| **Version coupling** | Both images share the same `0.1.1` version from the single `VERSION` file |
+| **SCM polling / webhook** | Pipeline started automatically after `git push` — no manual trigger needed |
+
+---
+
+## Slide 12 — Questions
 
 ### Thank You!
 
