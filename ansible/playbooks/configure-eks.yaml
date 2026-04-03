@@ -21,12 +21,16 @@
       - monitoring
 
   tasks:
+    - name: Build profile flag (empty when AWS env vars provide creds)
+      set_fact:
+        profile_flag: "{{ '--profile ' + aws_profile if aws_profile | default('') != '' else '' }}"
+
     - name: Update local kubeconfig for EKS cluster
       command: >
         aws eks update-kubeconfig
-          --name    {{ cluster_name }}
-          --region  {{ aws_region }}
-          --profile {{ aws_profile }}
+          --name   {{ cluster_name }}
+          --region {{ aws_region }}
+          {{ profile_flag }}
       register: kubeconfig_result
       changed_when: "'Updated context' in kubeconfig_result.stdout or 'Added' in kubeconfig_result.stdout"
 

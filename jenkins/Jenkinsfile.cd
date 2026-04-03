@@ -7,7 +7,6 @@ pipeline {
     agent any
 
     environment {
-        AWS_PROFILE   = 'seyoawe-tf'
         AWS_REGION    = 'us-east-1'
         CLUSTER_NAME  = 'seyoawe-cluster'
         NAMESPACE     = 'seyoawe'
@@ -39,9 +38,12 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh """
+                        unset AWS_PROFILE
                         export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
                         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-                        cd ${TF_DIR} && terraform init -input=false
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
+                        cd ${TF_DIR} && terraform init -input=false \
+                            -backend-config="profile="
                     """
                 }
             }
@@ -55,8 +57,10 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh """
+                        unset AWS_PROFILE
                         export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
                         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
                         cd ${TF_DIR} && terraform plan -out=tfplan -input=false
                     """
                 }
@@ -78,8 +82,10 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh """
+                        unset AWS_PROFILE
                         export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
                         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
                         cd ${TF_DIR} && terraform apply -auto-approve tfplan
                     """
                 }
@@ -94,10 +100,13 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh """
+                        unset AWS_PROFILE
                         export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
                         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
                         ansible-playbook ansible/playbooks/configure-eks.yaml \\
-                            -i ansible/inventory.ini
+                            -i ansible/inventory.ini \\
+                            -e aws_profile=""
                     """
                 }
             }

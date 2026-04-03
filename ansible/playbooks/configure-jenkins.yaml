@@ -24,9 +24,10 @@
   gather_facts: true
 
   vars:
-    jenkins_home:    /var/jenkins_home
-    jenkins_version: lts
-    kubectl_version: "v1.34.1"
+    jenkins_home:       /var/jenkins_home
+    jenkins_version:    lts
+    kubectl_version:    "v1.34.1"
+    terraform_version:  "1.14.0"
 
   tasks:
 
@@ -100,6 +101,55 @@
         executable: pip3
         state: present
 
+    # ── Terraform + kubectl + Ansible inside Jenkins container (CD pipeline) ─
+    # Jenkinsfile.cd runs terraform / kubectl / ansible-playbook in the agent (this container).
+    - name: Install unzip (required to extract Terraform zip)
+      dnf:
+        name: unzip
+        state: present
+
+    - name: Download Terraform binary bundle
+      get_url:
+        url: "https://releases.hashicorp.com/terraform/{{ terraform_version }}/terraform_{{ terraform_version }}_linux_amd64.zip"
+        dest: "/tmp/terraform_{{ terraform_version }}_linux_amd64.zip"
+        mode: "0644"
+
+    - name: Extract Terraform to /usr/local/bin on host
+      unarchive:
+        src: "/tmp/terraform_{{ terraform_version }}_linux_amd64.zip"
+        dest: /usr/local/bin
+        remote_src: true
+        creates: /usr/local/bin/terraform
+
+    - name: Ensure terraform binary is executable on host
+      file:
+        path: /usr/local/bin/terraform
+        mode: "0755"
+
+    - name: Copy Terraform into Jenkins container
+      command: docker cp /usr/local/bin/terraform jenkins:/usr/local/bin/terraform
+
+    - name: Copy kubectl into Jenkins container
+      command: docker cp /usr/local/bin/kubectl jenkins:/usr/local/bin/kubectl
+
+    - name: Ensure pip3 exists in Jenkins container (Debian-based jenkins/jenkins image)
+      shell: |
+        docker exec -u root jenkins bash -lc '
+          if ! command -v pip3 >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y --no-install-recommends python3-pip
+          fi
+        '
+      changed_when: true
+
+    - name: Install Ansible in Jenkins container (for ansible-playbook in CD)
+      shell: |
+        docker exec -u root jenkins bash -lc '
+          pip3 install --no-cache-dir ansible awscli 2>/dev/null || \
+          pip3 install --no-cache-dir --break-system-packages ansible awscli 2>/dev/null || \
+          pip3 install --no-cache-dir ansible awscli
+        '
+      changed_when: true
+
     # ── Summary ───────────────────────────────────────────────────────────────
     - name: Copy Docker CLI binary into Jenkins container
       command: docker cp /usr/bin/docker jenkins:/usr/local/bin/docker
@@ -112,6 +162,16 @@
           usermod -aG docker jenkins
         "
       changed_when: true
+
+    - name: Verify CD tools inside Jenkins container
+      shell: |
+        docker exec jenkins bash -lc 'terraform version && kubectl version --client && ansible-playbook --version | head -1'
+      register: cd_tools_verify
+      changed_when: false
+
+    - name: Show CD tools versions
+      debug:
+        msg: "{{ cd_tools_verify.stdout_lines }}"
 
     - name: Print Jenkins initial admin password location
       debug:
