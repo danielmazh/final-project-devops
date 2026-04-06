@@ -11,8 +11,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps required by the built-in modules
-RUN pip install --no-cache-dir requests pyyaml jinja2 gitpython
+# Install Python deps required by the built-in modules + Prometheus metrics exporter
+RUN pip install --no-cache-dir requests pyyaml jinja2 gitpython prometheus_client
 
 # Copy the full engine tree (config, modules, workflows, binary)
 COPY engine/ .
@@ -36,7 +36,7 @@ RUN chmod +x seyoawe.linux run.sh
 # Runtime directories (logs and lifetimes persist via PVC in K8s)
 RUN mkdir -p lifetimes logs
 
-EXPOSE 8080 8081
+EXPOSE 8080 8081 9113
 
 # Engine has no dedicated /health route — any HTTP response confirms the server is up.
 # curl without -f returns 0 on any HTTP response (including 404/405), non-zero only on
@@ -47,4 +47,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # Suppress gitpython startup warning (engine bundles gitpython; git CLI is installed above)
 ENV GIT_PYTHON_REFRESH=quiet
 
-ENTRYPOINT ["./seyoawe.linux"]
+COPY docker/engine/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]

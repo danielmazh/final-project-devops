@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: engine
-          image: danielmazh/seyoawe-engine:0.1.1
+          image: danielmazh/seyoawe-engine:0.1.2
           imagePullPolicy: Always
           ports:
             - name: http
@@ -28,6 +28,9 @@ spec:
               protocol: TCP
             - name: dispatcher
               containerPort: 8081
+              protocol: TCP
+            - name: metrics
+              containerPort: 9113
               protocol: TCP
 
           # Engine has no HTTP /health route — probe TCP socket availability

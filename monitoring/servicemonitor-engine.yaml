@@ -15,7 +15,7 @@ spec:
     matchLabels:
       app: seyoawe-engine
   endpoints:
-    - port: http
+    - port: metrics
       path: /metrics
       interval: 30s
       scrapeTimeout: 10s
