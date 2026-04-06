@@ -5,6 +5,10 @@
 pipeline {
     agent any
 
+    triggers {
+        githubPush()
+    }
+
     environment {
         BINARY_SRC = "/var/jenkins_home/seyoawe.linux"
     }
