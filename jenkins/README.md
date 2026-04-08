@@ -6,16 +6,16 @@ Three Jenkins Declarative Pipelines implementing CI for both application compone
 
 ```
 jenkins/
-├── Jenkinsfile.engine     # Engine CI: lint → build → push → tag (154 lines)
-├── Jenkinsfile.cli        # CLI CI: lint → test → build → push → tag (143 lines)
-└── Jenkinsfile.cd         # CD: terraform → ansible → kubectl deploy (164 lines)
+├── Jenkinsfile.engine     # Engine CI: lint → build → push → tag
+├── Jenkinsfile.cli        # CLI CI: lint → test → build → push → tag
+└── Jenkinsfile.cd         # CD: terraform → ansible → kubectl deploy
 ```
 
 ## Jenkins Instance
 
 Jenkins runs as a Docker container on a dedicated EC2 instance provisioned by Terraform:
 
-- **URL:** `http://44.201.6.188:8080`
+- **URL:** `http://<JENKINS_IP>:8080` (get IP from `cd terraform && terraform output jenkins_public_ip`)
 - **Host:** `t3.medium`, Amazon Linux 2023, public subnet
 - **Docker socket:** Bind-mounted from host — enables Docker builds inside pipelines
 - **Persistent home:** `/var/jenkins_home` on host volume
@@ -24,7 +24,8 @@ Jenkins runs as a Docker container on a dedicated EC2 instance provisioned by Te
 
 ```
                      ┌──────────────────────┐
-  git push to main → │  Change Detection    │
+  git push to main → │  GitHub Webhook      │ ── triggers { githubPush() }
+                     │  → Change Detection  │
                      │  git diff analysis   │
                      └────────┬─────────────┘
                               │
@@ -108,3 +109,14 @@ def changed = sh(script: "git diff ${baseRef} HEAD --name-only", returnStdout: t
 ```
 
 A `VERSION` file change triggers BOTH Engine and CLI pipelines (coupled release).
+
+## GitHub Webhook
+
+CI pipelines use `triggers { githubPush() }` to automatically start on push events. This requires a GitHub webhook configured on the repository:
+
+- **Payload URL:** `http://<JENKINS_IP>:8080/github-webhook/`
+- **Content type:** `application/json`
+- **Events:** Push only
+- **Security group:** The Terraform Jenkins SG allows port 8080 from GitHub's webhook IP ranges (`192.30.252.0/22`, `185.199.108.0/22`, `140.82.112.0/20`, `143.55.64.0/20`) in addition to the operator IP. These ranges come from [api.github.com/meta](https://api.github.com/meta).
+
+After first creating the webhook, run each CI job manually once ("Build Now") so Jenkins reads the Jenkinsfile and registers the `githubPush()` trigger.

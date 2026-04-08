@@ -7,7 +7,7 @@ AWS infrastructure provisioned via Terraform — VPC, EKS cluster, Jenkins EC2, 
 ```
 terraform/
 ├── backend.tf               # S3 remote state with use_lockfile (no DynamoDB)
-├── main.tf                   # All resources (411 lines)
+├── main.tf                   # All resources
 ├── variables.tf              # Input variables with defaults
 ├── outputs.tf                # Cluster endpoint, Jenkins IP, kubeconfig command
 ├── terraform.tfvars.example  # Template — copy to terraform.tfvars (gitignored)
@@ -31,7 +31,7 @@ VPC: 10.0.0.0/16
 │   └── Access: public + private API endpoint
 │
 ├── Jenkins EC2: t3.medium (public subnet, 30 GiB gp3)
-│   └── Security Group: ports 8080 (UI) + 22 (SSH) from operator IP
+│   └── Security Group: 8080 (UI) from operator IP + GitHub webhook CIDRs, 22 (SSH) from operator IP
 │
 ├── IAM Roles:
 │   ├── seyoawe-eks-cluster-role → AmazonEKSClusterPolicy

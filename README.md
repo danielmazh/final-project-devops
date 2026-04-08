@@ -2,7 +2,7 @@
 
 Full DevOps lifecycle implementation around **[SeyoAWE Community](https://github.com/yuribernstein/seyoawe-community)**, a modular workflow automation engine. This project delivers containerization, CI/CD pipelines (Jenkins), AWS infrastructure (Terraform + Ansible), Kubernetes deployment (EKS), and observability (Prometheus + Grafana).
 
-**Current version:** `0.1.1` (see [`VERSION`](./VERSION))  
+**Current version:** `0.1.2` (see [`VERSION`](./VERSION))  
 **GitHub:** [github.com/danielmazh/final-project-devops](https://github.com/danielmazh/final-project-devops)  
 **DockerHub:** [danielmazh/seyoawe-engine](https://hub.docker.com/r/danielmazh/seyoawe-engine) | [danielmazh/seyoawe-cli](https://hub.docker.com/r/danielmazh/seyoawe-cli)
 
@@ -22,15 +22,15 @@ Full DevOps lifecycle implementation around **[SeyoAWE Community](https://github
 │   GitHub    │       │  AWS (us-east-1)                                │
 │             │       │                                                │
 │ Tags:       │       │  VPC 10.0.0.0/16                               │
-│ engine-v0.1.1│      │  ├── Public-A ── NAT GW + Jenkins EC2 :8080    │
-│ cli-v0.1.1  │       │  ├── Public-B                                  │
+│ engine-v0.1.2│      │  ├── Public-A ── NAT GW + Jenkins EC2 :8080    │
+│ cli-v0.1.2  │       │  ├── Public-B                                  │
 └──────┬──────┘       │  ├── Private-A ── EKS Worker Node 1            │
        │              │  └── Private-B ── EKS Worker Node 2            │
        │ build        │                                                │
        ▼              │  EKS seyoawe-cluster (v1.32)                   │
 ┌─────────────┐       │  ├── ns: seyoawe                               │
 │ Jenkins EC2 │───────│  │   ├── seyoawe-engine-0 (StatefulSet)        │
-│ 3 Pipelines │       │  │   ├── Service :8080/:8081                   │
+│ 3 Pipelines │       │  │   ├── Service :8080/:8081/:9113 (metrics)   │
 │ engine-ci   │       │  │   ├── ConfigMap (config.yaml)               │
 │ cli-ci      │       │  │   └── PVC 2Gi (logs + lifetimes)            │
 │ cd          │       │  └── ns: monitoring                            │
@@ -68,7 +68,7 @@ final-project-devops/
 ├── scripts/             # Version coupling and change detection
 ├── lifecycle.sh         # AWS resource lifecycle manager (stop/start/destroy)
 ├── setup-env.sh         # One-command environment bootstrap
-├── VERSION              # Semantic version source of truth (0.1.1)
+├── VERSION              # Semantic version source of truth (0.1.2)
 └── requirements-infra.txt
 ```
 
@@ -138,22 +138,22 @@ kubectl apply -f monitoring/servicemonitor-engine.yaml
 | **Engine API** | `kubectl port-forward svc/seyoawe-engine 8090:8080 -n seyoawe` | `POST http://localhost:8090/api/community/hello-world` |
 | **Grafana** | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | `http://localhost:3000` (admin / seyoawe-grafana) |
 | **Prometheus** | `kubectl port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 -n monitoring` | `http://localhost:9090/targets` |
-| **Jenkins** | Direct access | `http://44.201.6.188:8080` |
-| **SSH to Jenkins** | `ssh ec2-user@44.201.6.188 -i ~/keys/devops-key-private-account.pem` | — |
+| **Jenkins** | Direct access | `http://<JENKINS_IP>:8080` (run `cd terraform && terraform output jenkins_public_ip`) |
+| **SSH to Jenkins** | `ssh ec2-user@<JENKINS_IP> -i ~/.ssh/<your-key>.pem` | — |
 
 ---
 
 ## CI/CD Pipelines
 
-Three Jenkins Declarative Pipelines with automatic change detection:
+Three Jenkins Declarative Pipelines with GitHub webhook triggers and automatic change detection:
 
 | Pipeline | Trigger | Stages |
 |----------|---------|--------|
-| **Engine CI** | `engine/` or `VERSION` changes | Lint (yamllint + shellcheck) → Docker Build → Push to DockerHub → Git Tag `engine-v*` |
-| **CLI CI** | `cli/` or `VERSION` changes | Lint (flake8) → Unit Tests (13 pytest) → Docker Build → Push → Git Tag `cli-v*` |
+| **Engine CI** | GitHub push webhook (`engine/`, `docker/engine/`, or `VERSION` changes) | Lint (yamllint + shellcheck) → Docker Build → Push to DockerHub → Git Tag `engine-v*` |
+| **CLI CI** | GitHub push webhook (`cli/`, `docker/cli/`, or `VERSION` changes) | Lint (flake8) → Unit Tests (13 pytest) → Docker Build → Push → Git Tag `cli-v*` |
 | **CD** | Manual trigger | Terraform Plan → Approval Gate → Apply → Ansible → kubectl deploy → Rollout verify |
 
-Changing `VERSION` triggers both CI pipelines simultaneously, ensuring engine and CLI always share the same version.
+CI pipelines use `triggers { githubPush() }` — a GitHub webhook delivers push events to Jenkins, which runs `git diff` change detection to decide whether to build. Changing `VERSION` triggers both CI pipelines simultaneously, ensuring engine and CLI always share the same version.
 
 ---
 

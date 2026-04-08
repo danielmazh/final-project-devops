@@ -16,7 +16,7 @@ Reads the root `VERSION` file and exports `APP_VERSION` as an environment variab
 
 ```bash
 source scripts/version.sh
-echo $APP_VERSION    # 0.1.1
+echo $APP_VERSION    # 0.1.2
 ```
 
 Used by Jenkins pipelines to tag Docker images and git releases with the current semver.

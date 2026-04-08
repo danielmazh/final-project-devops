@@ -65,8 +65,8 @@ RUN sed -i "s/^VERSION = \"[^\"]*\"/VERSION = \"${VERSION}\"/" sawectl.py
 ## In Docker
 
 ```bash
-docker build -f docker/cli/Dockerfile -t seyoawe-cli:0.1.1 --build-arg VERSION=0.1.1 .
-docker run --rm seyoawe-cli:0.1.1 --help
+docker build -f docker/cli/Dockerfile -t seyoawe-cli:0.1.2 --build-arg VERSION=0.1.2 .
+docker run --rm seyoawe-cli:0.1.2 --help
 ```
 
 ## Linting

@@ -9,7 +9,7 @@ k8s/
 ├── namespace.yaml              # Creates namespaces: seyoawe + monitoring
 └── engine/
     ├── statefulset.yaml        # StatefulSet: 1 replica, probes, PVC, resource limits
-    ├── service.yaml            # ClusterIP service: ports 8080 + 8081
+    ├── service.yaml            # ClusterIP service: ports 8080 + 8081 + 9113 (metrics)
     └── configmap.yaml          # Engine config.yaml adapted for K8s
 ```
 
@@ -17,14 +17,14 @@ k8s/
 
 ```
 Service: seyoawe-engine (ClusterIP)
-  │  ports: 8080 (http), 8081 (dispatcher)
+  │  ports: 8080 (http), 8081 (dispatcher), 9113 (metrics)
   ▼
 StatefulSet: seyoawe-engine (replicas: 1)
   └── Pod: seyoawe-engine-0
         │
         ├── Container: engine
-        │   Image: danielmazh/seyoawe-engine:0.1.1
-        │   Ports: 8080, 8081
+        │   Image: danielmazh/seyoawe-engine:0.1.2
+        │   Ports: 8080, 8081, 9113
         │   Liveness:  tcpSocket :8080 (delay 30s, period 15s)
         │   Readiness: tcpSocket :8080 (delay 15s, period 10s)
         │   Resources: 100m–500m CPU, 256Mi–512Mi memory
@@ -47,7 +47,7 @@ kubectl apply -f k8s/engine/
 # Verify
 kubectl get pods -n seyoawe             # seyoawe-engine-0  1/1  Running
 kubectl get pvc -n seyoawe              # data-seyoawe-engine-0  Bound  2Gi
-kubectl get svc -n seyoawe              # seyoawe-engine  ClusterIP  :8080/:8081
+kubectl get svc -n seyoawe              # seyoawe-engine  ClusterIP  :8080/:8081/:9113
 
 # Test the API
 kubectl port-forward svc/seyoawe-engine 8090:8080 -n seyoawe

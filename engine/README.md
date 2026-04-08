@@ -7,6 +7,7 @@ The SeyoAWE Community automation engine — a modular, workflow-driven platform 
 ```
 engine/
 ├── seyoawe.linux          # Pre-compiled engine binary (not in git — manual placement)
+├── metrics_exporter.py    # Prometheus metrics sidecar (port 9113)
 ├── run.sh                 # Launcher script: ./run.sh linux | macos
 ├── configuration/
 │   └── config.yaml        # Runtime configuration (ports, paths, module defaults)
@@ -70,6 +71,17 @@ curl -X POST http://localhost:8080/api/community/hello-world \
 
 The engine resolves modules from `modules/modules/<name>/`. A self-referencing symlink `modules/modules → modules/` satisfies this. In Docker, this is created automatically by `RUN cd modules && ln -sf . modules` in the Dockerfile.
 
+## Prometheus Metrics
+
+The engine binary does not expose a `/metrics` endpoint. A lightweight Python sidecar (`metrics_exporter.py`) runs alongside the engine via `docker/engine/entrypoint.sh` and serves Prometheus metrics on port **9113**:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `seyoawe_engine_up` | Gauge | 1 if the engine's TCP socket on :8080 is accepting connections |
+| `seyoawe_engine_probe_duration_seconds` | Histogram | Time spent probing the engine |
+
+The ServiceMonitor in `monitoring/servicemonitor-engine.yaml` scrapes this port.
+
 ## In Docker / Kubernetes
 
-See `docker/engine/Dockerfile` for containerization and `k8s/engine/` for the StatefulSet deployment. Logs and lifetimes persist on a 2Gi PVC mounted at `/app/data`.
+See `docker/engine/Dockerfile` for containerization and `k8s/engine/` for the StatefulSet deployment. The Docker entrypoint (`docker/engine/entrypoint.sh`) starts the metrics exporter in the background, then execs the engine binary. Logs and lifetimes persist on a 2Gi PVC mounted at `/app/data`.

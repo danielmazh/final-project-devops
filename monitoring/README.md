@@ -6,7 +6,7 @@ Observability stack configuration — Prometheus, Grafana, and Alertmanager depl
 
 ```
 monitoring/
-├── kube-prometheus-values.yaml    # Helm chart overrides (104 lines)
+├── kube-prometheus-values.yaml    # Helm chart overrides (105 lines)
 └── servicemonitor-engine.yaml     # Prometheus scrape target for seyoawe-engine
 ```
 
@@ -87,12 +87,12 @@ spec:
     matchLabels:
       app: seyoawe-engine
   endpoints:
-    - port: http          # port 8080
+    - port: metrics       # port 9113 (Prometheus exporter sidecar)
       path: /metrics
       interval: 30s
 ```
 
-The target shows `down` in Prometheus because the engine binary does not expose `/metrics`. The wiring is architecturally correct — the ServiceMonitor, scrape config, and target registration all work; this is an upstream application limitation.
+The engine binary does not natively expose `/metrics`. A lightweight Python sidecar (`engine/metrics_exporter.py`) runs alongside the engine on port 9113 and exports `seyoawe_engine_up` (TCP health probe) and `seyoawe_engine_probe_duration_seconds`. The Service defines a named port `metrics` (9113) that the ServiceMonitor targets.
 
 ## Values Overrides
 
