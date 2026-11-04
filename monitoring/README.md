@@ -29,7 +29,8 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo update
 helm install monitoring prometheus-community/kube-prometheus-stack \
   -n monitoring --create-namespace \
-  -f monitoring/kube-prometheus-values.yaml
+  -f monitoring/kube-prometheus-values.yaml \
+  --set-string grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
 kubectl apply -f monitoring/servicemonitor-engine.yaml
 ```
 
@@ -38,7 +39,7 @@ kubectl apply -f monitoring/servicemonitor-engine.yaml
 ```bash
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
 # Open http://localhost:3000
-# Login: admin / seyoawe-grafana
+# Login: admin / <grafana-admin-password>
 ```
 
 **Key dashboards:**
@@ -106,14 +107,15 @@ Key settings in `kube-prometheus-values.yaml`:
 | Storage | 5Gi gp2 | Persistent Prometheus data |
 | Image registries | docker.io + ghcr.io | quay.io returns 502 from AWS NAT GW IPs |
 | serviceMonitorSelectorNilUsesHelmValues | false | Scrape ServiceMonitors from ALL namespaces |
-| Grafana admin password | `seyoawe-grafana` | Known password for demo |
+| Grafana admin password | `<grafana-admin-password>` | Set from the `GRAFANA_ADMIN_PASSWORD` env variable at install |
 
 ## Upgrade / Uninstall
 
 ```bash
 # Upgrade with new values
 helm upgrade monitoring prometheus-community/kube-prometheus-stack \
-  -n monitoring -f monitoring/kube-prometheus-values.yaml
+  -n monitoring -f monitoring/kube-prometheus-values.yaml \
+  --set-string grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
 
 # Uninstall (stop billing for monitoring resources)
 helm uninstall monitoring -n monitoring

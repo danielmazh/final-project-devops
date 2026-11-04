@@ -83,7 +83,7 @@ This project wraps **SeyoAWE Community** — a YAML-driven workflow automation e
        ▼              │      ├── Alertmanager                          │
 ┌─────────────┐       │      └── ServiceMonitor → seyoawe-engine       │
 │  DockerHub  │       │                                                │
-│ seyoawe-    │       │  S3: seyoawe-tf-state-632008729195             │
+│ seyoawe-    │       │  S3: seyoawe-tf-state-<account-id>             │
 │ engine/cli  │       │  (Terraform remote state, S3-native lock)      │
 └─────────────┘       └────────────────────────────────────────────────┘
 ```
@@ -92,8 +92,8 @@ This project wraps **SeyoAWE Community** — a YAML-driven workflow automation e
 
 | Component | URL | Credentials |
 |-----------|-----|-------------|
-| **Jenkins UI** | [http://JENKINS_IP:8080](http://44.201.6.188:8080) | Initial admin password from `jenkins logs` |
-| **Grafana** | [http://localhost:3000](http://localhost:3000) (via port-forward) | `admin` / `seyoawe-grafana` |
+| **Jenkins UI** | [http://JENKINS_IP:8080](http://<jenkins-ip>:8080) | Initial admin password from `jenkins logs` |
+| **Grafana** | [http://localhost:3000](http://localhost:3000) (via port-forward) | `admin` / `<grafana-admin-password>` |
 | **Prometheus** | [http://localhost:9090](http://localhost:9090) (via port-forward) | No auth |
 | **GitHub Repo** | [github.com/danielmazh/final-project-devops](https://github.com/danielmazh/final-project-devops) | — |
 | **DockerHub Engine** | [hub.docker.com/r/danielmazh/seyoawe-engine](https://hub.docker.com/r/danielmazh/seyoawe-engine) | — |
@@ -217,7 +217,7 @@ A **Flat Layout** was chosen (single `main.tf` with all resources) instead of a 
 > #   aws_vpc.main
 >
 > # Prove the S3 remote state backend exists and holds the tfstate file — this is where Terraform persists infrastructure state
-> aws s3 ls s3://seyoawe-tf-state-632008729195/dev/ --profile seyoawe-tf
+> aws s3 ls s3://seyoawe-tf-state-<account-id>/dev/ --profile seyoawe-tf
 > # Expected: YYYY-MM-DD HH:MM:SS  62138 terraform.tfstate
 > ```
 
@@ -332,7 +332,7 @@ The EBS CSI driver needs IAM (Identity and Access Management) permissions to cre
 > aws iam get-role --role-name seyoawe-ebs-csi-role \
 >     --query "Role.{RoleName:RoleName, Arn:Arn}" --output table --profile seyoawe-tf
 > # Expected:
-> #   | arn:aws:iam::632008729195:role/seyoawe-ebs-csi-role | seyoawe-ebs-csi-role |
+> #   | arn:aws:iam::<account-id>:role/seyoawe-ebs-csi-role | seyoawe-ebs-csi-role |
 >
 > # Verify the EBS CSI driver pods are healthy — controllers manage volume lifecycle, nodes mount volumes on workers
 > kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver
@@ -342,7 +342,7 @@ The EBS CSI driver needs IAM (Identity and Access Management) permissions to cre
 >
 > # Prove the K8s SA (Service Account) is annotated with the IAM role ARN — this is the IRSA link that grants permissions
 > kubectl get sa ebs-csi-controller-sa -n kube-system -o yaml | grep role-arn
-> # Expected: eks.amazonaws.com/role-arn: arn:aws:iam::632008729195:role/seyoawe-ebs-csi-role
+> # Expected: eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/seyoawe-ebs-csi-role
 > ```
 
 #### Ansible Playbooks
@@ -452,7 +452,7 @@ A 387-line Bash script that serves as the single entry point for managing all cl
 > #   EKS Node Group:      desired=2
 > #   Jenkins EC2:         running
 > #   Monitoring Helm:     deployed
-> #   TF State Bucket:     exists (seyoawe-tf-state-632008729195)
+> #   TF State Bucket:     exists (seyoawe-tf-state-<account-id>)
 > #
 > #   Estimated hourly cost while all resources are running:
 > #     EKS control plane:  ~$0.10/hr
@@ -464,7 +464,7 @@ A 387-line Bash script that serves as the single entry point for managing all cl
 
 ### Relevant Files & Structure
 
-- **`terraform/backend.tf`** — 23 lines. S3 backend configuration: bucket `seyoawe-tf-state-632008729195`, key `dev/terraform.tfstate`, region `us-east-1`, `encrypt = true`, `use_lockfile = true` (Terraform ≥ 1.14 — no DynamoDB), profile `seyoawe-tf`. Required providers: `hashicorp/aws ~> 5.90`, `hashicorp/tls ~> 4.0`.
+- **`terraform/backend.tf`** - 23 lines. S3 backend configuration: bucket `seyoawe-tf-state-<account-id>`, key `dev/terraform.tfstate`, region `us-east-1`, `encrypt = true`, `use_lockfile = true` (Terraform ≥ 1.14 - no DynamoDB), profile `seyoawe-tf`. Required providers: `hashicorp/aws ~> 5.90`, `hashicorp/tls ~> 4.0`.
 - **`terraform/variables.tf`** — 40 lines, 7 variables: `aws_region` (default `us-east-1`), `cluster_name` (default `seyoawe-cluster`), `node_instance_type` (default `t3.medium`), `node_desired_count` (default `2`), `jenkins_instance_type` (default `t3.medium`), `jenkins_key_pair` (required, no default), `operator_ip` (required, CIDR notation e.g. `1.2.3.4/32`).
 - **`terraform/main.tf`** — 412 lines containing all infrastructure resources: AWS provider config, data sources (availability zones, Amazon Linux 2023 AMI), local tags (`Project=seyoawe`, `Environment=poc`, `ManagedBy=terraform`), VPC (`10.0.0.0/16`, DNS hostnames enabled), 4 Subnets (2 public with `map_public_ip_on_launch=true` and K8s ELB tags, 2 private with internal-ELB tags), Internet Gateway, NAT Gateway + Elastic IP in public-a, 2 Route Tables (public → IGW, private → NAT) with 4 associations, IAM Cluster Role (EKS assume-role policy) + `AmazonEKSClusterPolicy`, IAM Node Role (EC2 assume-role policy) + `AmazonEKSWorkerNodePolicy` + `AmazonEKS_CNI_Policy` + `AmazonEC2ContainerRegistryReadOnly`, EKS Cluster (v1.32, all 4 subnets, dual endpoint access, `API_AND_CONFIG_MAP` auth), EKS Node Group (2× t3.medium, AL2023, private subnets only, scaling 2/2/3, max_unavailable=1), TLS certificate data source + OIDC Provider, IRSA EBS CSI Role (federated trust policy with aud+sub conditions) + `AmazonEBSCSIDriverPolicy`, 4 EKS Addons (vpc-cni, kube-proxy, coredns, aws-ebs-csi-driver with service_account_role_arn), Jenkins Security Group (ingress 8080+22 from operator_ip, full egress), Jenkins EC2 Instance (Amazon Linux 2023, public subnet, 30GB gp3 encrypted root).
 - **`terraform/outputs.tf`** — 35 lines, 7 outputs: `cluster_name`, `cluster_endpoint`, `kubeconfig_command` (ready-to-run aws eks update-kubeconfig command), `jenkins_public_ip`, `jenkins_ui_url` (http://<ip>:8080), `vpc_id`, `ebs_csi_role_arn`.
@@ -486,7 +486,7 @@ A 387-line Bash script that serves as the single entry point for managing all cl
 #   EKS Node Group:      desired=2
 #   Jenkins EC2:         running
 #   Monitoring Helm:     deployed
-#   TF State Bucket:     exists (seyoawe-tf-state-632008729195)
+#   TF State Bucket:     exists (seyoawe-tf-state-<account-id>)
 #   Total:              ~$0.27/hr (~$6.50/day)
 
 # 2. Show every Terraform-managed resource — proves the entire AWS stack is codified as IaC
@@ -953,7 +953,7 @@ The monitoring stack is deployed via the **Helm chart** `prometheus-community/ku
 |-----------|---------------|
 | Prometheus | 1 replica, 3-day retention, 200m/400Mi requests → 500m/600Mi limits, 5Gi PVC on gp2, image `docker.io/prom/prometheus:v3.10.0` |
 | Alertmanager | 1 replica, 50m/64Mi requests → 100m/128Mi limits, image `docker.io/prom/alertmanager:v0.31.1` |
-| Grafana | Admin password: `seyoawe-grafana`, default dashboards enabled (28 pre-built dashboards), timezone: browser, 100m/128Mi → 200m/256Mi, sidecar image `docker.io/kiwigrid/k8s-sidecar:2.5.0` |
+| Grafana | Admin password: `<grafana-admin-password>`, default dashboards enabled (28 pre-built dashboards), timezone: browser, 100m/128Mi → 200m/256Mi, sidecar image `docker.io/kiwigrid/k8s-sidecar:2.5.0` |
 | Prometheus Operator | 50m/64Mi requests, config-reloader image `ghcr.io/prometheus-operator/prometheus-config-reloader:v0.89.0` |
 | kube-state-metrics | 50m/64Mi requests |
 | node-exporter | 50m/32Mi per node, image `docker.io/prom/node-exporter:v1.10.2` |
@@ -1006,7 +1006,7 @@ spec:
 
 ### Relevant Files & Structure
 
-- **`monitoring/kube-prometheus-values.yaml`** — 105 lines. Prometheus section: `replicas: 1`, `retention: 3d`, image `docker.io/prom/prometheus:v3.10.0`, `serviceMonitorSelectorNilUsesHelmValues: false`, `serviceMonitorNamespaceSelector: {}`, `serviceMonitorSelector: {}`, `podMonitorSelectorNilUsesHelmValues: false`, `podMonitorNamespaceSelector: {}`, `podMonitorSelector: {}`, resources requests 200m/400Mi limits 500m/600Mi, storageSpec `volumeClaimTemplate` 5Gi gp2 RWO. Alertmanager section: `replicas: 1`, image `docker.io/prom/alertmanager:v0.31.1`, resources 50m/64Mi → 100m/128Mi. Grafana section: `adminPassword: seyoawe-grafana`, `defaultDashboardsEnabled: true`, `defaultDashboardsTimezone: browser`, resources 100m/128Mi → 200m/256Mi, sidecar image `docker.io/kiwigrid/k8s-sidecar:2.5.0`. Operator section: resources 50m/64Mi, config-reloader `ghcr.io/prometheus-operator/prometheus-config-reloader:v0.89.0`. kube-state-metrics section: resources 50m/64Mi. node-exporter section: image `docker.io/prom/node-exporter:v1.10.2`, resources 50m/32Mi.
+- **`monitoring/kube-prometheus-values.yaml`** - 105 lines. Prometheus section: `replicas: 1`, `retention: 3d`, image `docker.io/prom/prometheus:v3.10.0`, `serviceMonitorSelectorNilUsesHelmValues: false`, `serviceMonitorNamespaceSelector: {}`, `serviceMonitorSelector: {}`, `podMonitorSelectorNilUsesHelmValues: false`, `podMonitorNamespaceSelector: {}`, `podMonitorSelector: {}`, resources requests 200m/400Mi limits 500m/600Mi, storageSpec `volumeClaimTemplate` 5Gi gp2 RWO. Alertmanager section: `replicas: 1`, image `docker.io/prom/alertmanager:v0.31.1`, resources 50m/64Mi → 100m/128Mi. Grafana section: `adminPassword: <grafana-admin-password>`, `defaultDashboardsEnabled: true`, `defaultDashboardsTimezone: browser`, resources 100m/128Mi → 200m/256Mi, sidecar image `docker.io/kiwigrid/k8s-sidecar:2.5.0`. Operator section: resources 50m/64Mi, config-reloader `ghcr.io/prometheus-operator/prometheus-config-reloader:v0.89.0`. kube-state-metrics section: resources 50m/64Mi. node-exporter section: image `docker.io/prom/node-exporter:v1.10.2`, resources 50m/32Mi.
 - **`monitoring/servicemonitor-engine.yaml`** — 22 lines. ServiceMonitor `seyoawe-engine` in namespace `monitoring`. Labels: `app: seyoawe-engine`, `project: seyoawe`, `release: monitoring` (required for Prometheus Operator discovery). `namespaceSelector.matchNames: [seyoawe]`. `selector.matchLabels: app: seyoawe-engine`. Single endpoint: port `http`, path `/metrics`, interval `30s`, scrapeTimeout `10s`.
 
 ### Live Demo & Commands
@@ -1028,7 +1028,7 @@ kubectl get pods -n monitoring
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring &
 sleep 2
 # → Open: http://localhost:3000
-# → Login: admin / seyoawe-grafana
+# → Login: admin / <grafana-admin-password>
 # → What to show:
 #   - Navigate to Dashboards → "Kubernetes / Compute Resources / Cluster"
 #   - Show CPU Usage, Memory Usage, and Network I/O broken down by namespace
@@ -1306,7 +1306,7 @@ sleep 2
 
 **Open [http://localhost:3000](http://localhost:3000) and show:**
 
-1. **Login:** `admin` / `seyoawe-grafana`
+1. **Login:** `admin` / `<grafana-admin-password>`
 2. **Dashboard → "Kubernetes / Compute Resources / Cluster"**
    - Show CPU and Memory usage broken down by namespace (`seyoawe`, `monitoring`, `kube-system`)
    - Point out: the monitoring namespace uses more resources than the app itself (expected for PoC)

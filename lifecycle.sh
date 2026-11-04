@@ -238,11 +238,16 @@ cmd_start() {
                 err "Values file not found: $values_file"
                 return 1
             fi
+            if [[ -z "${GRAFANA_ADMIN_PASSWORD:-}" ]]; then
+                err "Set GRAFANA_ADMIN_PASSWORD first (see .env.example)"
+                return 1
+            fi
             log "Installing monitoring stack via Helm..."
             helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
             helm repo update > /dev/null
             helm install monitoring prometheus-community/kube-prometheus-stack \
-                -n monitoring --create-namespace -f "$values_file"
+                -n monitoring --create-namespace -f "$values_file" \
+                --set-string grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
             ok "Monitoring stack deployed."
             ;;
         nat)

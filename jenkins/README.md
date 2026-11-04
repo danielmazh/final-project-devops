@@ -98,6 +98,7 @@ Jenkins runs as a Docker container on a dedicated EC2 instance provisioned by Te
 | `dockerhub-creds` | Username + Password | DockerHub login + push + image namespace |
 | `github-token` | Secret text | Git tag push authentication |
 | `aws-credentials` | Username + Password | AWS access for Terraform in CD pipeline |
+| `tf-operator-cidr` | Secret text | Operator public IP in CIDR form, for the `operator_ip` Terraform variable |
 
 ## Change Detection Logic
 

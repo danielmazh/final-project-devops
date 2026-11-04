@@ -57,7 +57,8 @@ alertmanager:
 
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
-  adminPassword: seyoawe-grafana
+  # adminPassword is not stored here. Pass it at install time:
+  #   --set-string grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
   defaultDashboardsEnabled: true
   defaultDashboardsTimezone: browser
   resources:

@@ -49,7 +49,7 @@ cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: set jenkins_key_pair and operator_ip
 
 # Initialize (connects to S3 backend)
-terraform init
+terraform init -backend-config="bucket=seyoawe-tf-state-$(aws sts get-caller-identity --query Account --output text)"
 
 # Review changes
 terraform plan
@@ -69,7 +69,7 @@ terraform destroy
 
 ```hcl
 backend "s3" {
-  bucket       = "seyoawe-tf-state-632008729195"
+  # bucket passed at init: seyoawe-tf-state-<account-id>
   key          = "dev/terraform.tfstate"
   region       = "us-east-1"
   encrypt      = true

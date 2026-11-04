@@ -56,7 +56,7 @@ The entire platform was built with a **PoC-first philosophy**: minimal cost, max
 │  final-project-   │    │  VPC: 10.0.0.0/16                       │
 │  devops           │    │  ├── Public-A: 10.0.1.0/24              │
 │                   │    │  │   ├── NAT Gateway                    │
-│  Tags:            │    │  │   └── Jenkins EC2 (44.201.6.188)     │
+│  Tags:            │    │  │   └── Jenkins EC2 (<jenkins-ip>)     │
 │  - engine-v0.1.1  │    │  ├── Public-B: 10.0.2.0/24              │
 │  - cli-v0.1.1     │    │  ├── Private-A: 10.0.10.0/24            │
 │                   │    │  │   └── EKS Worker Node 1               │
@@ -65,7 +65,7 @@ The entire platform was built with a **PoC-first philosophy**: minimal cost, max
            ▼             │                                          │
 ┌──────────────────┐    │  EKS: seyoawe-cluster (v1.32)           │
 │  Jenkins EC2     │    │  ├── ns: seyoawe                         │
-│  44.201.6.188    │────│  │   ├── seyoawe-engine-0 (StatefulSet) │
+│  <jenkins-ip>    │────│  │   ├── seyoawe-engine-0 (StatefulSet) │
 │  :8080           │    │  │   ├── seyoawe-engine Service          │
 │                  │    │  │   ├── seyoawe-config ConfigMap        │
 │  3 Pipelines:    │    │  │   └── data-seyoawe-engine-0 PVC      │
@@ -77,7 +77,7 @@ The entire platform was built with a **PoC-first philosophy**: minimal cost, max
 │  mounted         │    │      ├── kube-state-metrics              │
 └──────────────────┘    │      └── ServiceMonitor: seyoawe-engine  │
            │             │                                          │
-           │ push        │  S3: seyoawe-tf-state-632008729195      │
+           │ push        │  S3: seyoawe-tf-state-<account-id>      │
            ▼             │  (Terraform remote state, use_lockfile)  │
 ┌──────────────────┐    └──────────────────────────────────────────┘
 │  DockerHub        │
@@ -150,7 +150,7 @@ The entire platform was built with a **PoC-first philosophy**: minimal cost, max
 | EC2 Instance | `seyoawe-jenkins` | `t3.medium`, Amazon Linux 2023, 30 GiB gp3, public subnet |
 | Security Group | `seyoawe-jenkins-sg` | Inbound: 8080 (Jenkins UI) + 22 (SSH) from operator IP |
 
-**Terraform backend:** S3 bucket `seyoawe-tf-state-632008729195` with `use_lockfile = true` (no DynamoDB — Terraform 1.14 native S3 locking).
+**Terraform backend:** S3 bucket `seyoawe-tf-state-<account-id>` with `use_lockfile = true` (no DynamoDB - Terraform 1.14 native S3 locking).
 
 **Ansible playbooks:**
 
@@ -232,7 +232,7 @@ All 13 pass in < 2 seconds.
 **Branch:** `feature/phase4-ci-pipelines` → merged to `main`  
 **Design log:** `0006_phase4_ci_pipelines.md`
 
-**Jenkins instance:** Running on dedicated EC2 (`44.201.6.188:8080`) as a Docker container with bind-mounted Docker socket.
+**Jenkins instance:** Running on dedicated EC2 (`<jenkins-ip>:8080`) as a Docker container with bind-mounted Docker socket.
 
 **Three pipeline jobs:**
 
@@ -323,7 +323,7 @@ All 13 pass in < 2 seconds.
 - Prometheus retention: 3 days, storage: 5Gi gp2
 - Resource limits tuned for t3.medium nodes
 - **Image registry overrides:** `docker.io` mirrors for quay.io images (AWS datacenter IPs hit quay.io 502 Bad Gateway); `ghcr.io` for `prometheus-config-reloader`
-- Grafana admin password: `seyoawe-grafana`
+- Grafana admin password: `<grafana-admin-password>`
 
 **Running pods (7/7):**
 
@@ -364,7 +364,7 @@ All 13 pass in < 2 seconds.
 | EC2 (EKS Node 2) | `ip-10-0-20-120.ec2.internal` (t3.medium) | us-east-1b | ~$0.04/hr |
 | EC2 (Jenkins) | `i-0d7750370cb91d593` (t3.medium) | us-east-1a | ~$0.04/hr |
 | EBS Volumes | 3 PVCs (2Gi + 5Gi + 30Gi root) | us-east-1 | ~$3/mo |
-| S3 Bucket | `seyoawe-tf-state-632008729195` | us-east-1 | < $1/mo |
+| S3 Bucket | `seyoawe-tf-state-<account-id>` | us-east-1 | < $1/mo |
 | IAM Roles | 3 (cluster, node, ebs-csi) | global | — |
 | OIDC Provider | `oidc.eks.us-east-1.../3A6358C...` | global | — |
 | **Total** | | | **~$0.27/hr ≈ $6.50/day** |
@@ -414,16 +414,16 @@ source .venv/bin/activate    # activates all tools + AWS profile
 ### Jenkins UI
 
 ```
-URL:      http://44.201.6.188:8080
+URL:      http://<jenkins-ip>:8080
 Login:    admin / (initial password or your configured password)
 
-SSH:      ssh ec2-user@44.201.6.188 -i ~/keys/devops-key-private-account.pem
+SSH:      ssh ec2-user@<jenkins-ip> -i ~/keys/devops-key-private-account.pem
 ```
 
 **Pipeline jobs:**
-- `seyoawe-engine-ci` — http://44.201.6.188:8080/job/seyoawe-engine-ci/
-- `seyoawe-cli-ci` — http://44.201.6.188:8080/job/seyoawe-cli-ci/
-- `seyoawe-cd` — http://44.201.6.188:8080/job/seyoawe-cd/
+- `seyoawe-engine-ci` - http://<jenkins-ip>:8080/job/seyoawe-engine-ci/
+- `seyoawe-cli-ci` - http://<jenkins-ip>:8080/job/seyoawe-cli-ci/
+- `seyoawe-cd` - http://<jenkins-ip>:8080/job/seyoawe-cd/
 
 ### EKS Cluster
 
@@ -452,7 +452,7 @@ curl -X POST http://localhost:8090/api/community/hello-world \
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
 
 # Open http://localhost:3000
-# Login: admin / seyoawe-grafana
+# Login: admin / <grafana-admin-password>
 ```
 
 **Recommended dashboards to explore:**

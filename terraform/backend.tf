@@ -13,7 +13,8 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "seyoawe-tf-state-632008729195"
+    # bucket is passed at init, so the account id stays out of the repo:
+    #   terraform init -backend-config="bucket=seyoawe-tf-state-$(aws sts get-caller-identity --query Account --output text)"
     key          = "dev/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true

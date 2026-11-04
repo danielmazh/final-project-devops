@@ -181,7 +181,7 @@ kubectl logs seyoawe-engine-0 -n seyoawe
 
 **File:** `jenkins/Jenkinsfile.engine` (154 lines)
 
-**Jenkins job:** `seyoawe-engine-ci` at `http://44.201.6.188:8080/job/seyoawe-engine-ci/`  
+**Jenkins job:** `seyoawe-engine-ci` at `http://<jenkins-ip>:8080/job/seyoawe-engine-ci/`  
 **SCM:** Git `https://github.com/danielmazh/final-project-devops.git`, branch `*/main`
 
 ### 2.2 Stage breakdown (with line numbers)
@@ -221,7 +221,7 @@ The `VERSION` file at the repo root is the single source of truth. The pipeline 
 - Docker Push: `sha256:4971d9b7fe039fd883df53ffac3327699749494f0b3b5c0070af4c2b1af5a29b`
 - Git Tag: `engine-v0.1.1` pushed to GitHub
 
-**Job URL:** `http://44.201.6.188:8080/job/seyoawe-engine-ci/14/console`
+**Job URL:** `http://<jenkins-ip>:8080/job/seyoawe-engine-ci/14/console`
 
 ---
 
@@ -233,7 +233,7 @@ The `VERSION` file at the repo root is the single source of truth. The pipeline 
 
 **File:** `jenkins/Jenkinsfile.cli` (143 lines)
 
-**Jenkins job:** `seyoawe-cli-ci` at `http://44.201.6.188:8080/job/seyoawe-cli-ci/`  
+**Jenkins job:** `seyoawe-cli-ci` at `http://<jenkins-ip>:8080/job/seyoawe-cli-ci/`  
 **SCM:** Git `https://github.com/danielmazh/final-project-devops.git`, branch `*/main`
 
 ### 3.2 Stage breakdown (with line numbers)
@@ -378,7 +378,7 @@ When `BUILD_ENGINE=false`, all downstream stages (Lint, Prepare Binary, Docker B
 
 **File:** `jenkins/Jenkinsfile.cd` (164 lines)
 
-**Jenkins job:** `seyoawe-cd` at `http://44.201.6.188:8080/job/seyoawe-cd/`
+**Jenkins job:** `seyoawe-cd` at `http://<jenkins-ip>:8080/job/seyoawe-cd/`
 
 | Stage | Lines | Tool | What it does |
 |-------|-------|------|-------------|
@@ -424,7 +424,7 @@ When `BUILD_ENGINE=false`, all downstream stages (Lint, Prepare Binary, Docker B
 
 ```hcl
 backend "s3" {
-  bucket       = "seyoawe-tf-state-632008729195"
+  bucket       = "seyoawe-tf-state-<account-id>"
   key          = "dev/terraform.tfstate"
   region       = "us-east-1"
   encrypt      = true
@@ -492,7 +492,7 @@ helm install monitoring prometheus-community/kube-prometheus-stack \
 | `prometheus.prometheusSpec.storageSpec` | 31–39 | 5Gi gp2 PVC | Persistent metrics storage |
 | `alertmanager.alertmanagerSpec.replicas` | 44 | 1 | Resource conservation |
 | `alertmanager.alertmanagerSpec.image` | 46–48 | docker.io/prom/alertmanager | quay.io workaround |
-| `grafana.adminPassword` | 53 | `seyoawe-grafana` | Known password for demo |
+| `grafana.adminPassword` | 53 | `<grafana-admin-password>` | Known password for demo |
 | `grafana.defaultDashboardsEnabled` | 55 | true | Ships 28 pre-built dashboards |
 | `prometheusOperator.prometheusConfigReloader.image` | 79–81 | ghcr.io/prometheus-operator/... | Only registry that works for this image from AWS |
 
@@ -538,7 +538,7 @@ Access:
 ```bash
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
 # Open http://localhost:3000
-# Login: admin / seyoawe-grafana
+# Login: admin / <grafana-admin-password>
 ```
 
 Key dashboards for this project:
@@ -710,14 +710,14 @@ kubectl get pods -n monitoring
 echo "# trigger" >> engine/run.sh && git add -A && git commit -m "trigger engine CI" && git push
 
 # Method 2: Manual trigger in Jenkins UI
-open http://44.201.6.188:8080/job/seyoawe-engine-ci/  # click "Build Now"
-open http://44.201.6.188:8080/job/seyoawe-cli-ci/     # click "Build Now"
+open http://<jenkins-ip>:8080/job/seyoawe-engine-ci/  # click "Build Now"
+open http://<jenkins-ip>:8080/job/seyoawe-cli-ci/     # click "Build Now"
 ```
 
 ### Trigger a CD deployment
 
 ```bash
-open http://44.201.6.188:8080/job/seyoawe-cd/  # click "Build Now"
+open http://<jenkins-ip>:8080/job/seyoawe-cd/  # click "Build Now"
 # Pipeline will pause at "Approval: Terraform Apply" — click "Apply" to proceed
 ```
 
@@ -726,7 +726,7 @@ open http://44.201.6.188:8080/job/seyoawe-cd/  # click "Build Now"
 ```bash
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
 # Browser: http://localhost:3000
-# Login: admin / seyoawe-grafana
+# Login: admin / <grafana-admin-password>
 ```
 
 ### Access Prometheus
@@ -756,7 +756,7 @@ curl -X POST http://localhost:8090/api/community/hello-world \
 ### SSH to Jenkins EC2
 
 ```bash
-ssh ec2-user@44.201.6.188 -i ~/keys/devops-key-private-account.pem
+ssh ec2-user@<jenkins-ip> -i ~/keys/devops-key-private-account.pem
 # Inside EC2:
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword  # if needed
 docker logs jenkins --tail=20
