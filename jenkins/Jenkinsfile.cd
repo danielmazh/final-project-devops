@@ -12,7 +12,7 @@ pipeline {
         NAMESPACE        = 'seyoawe'
         TF_DIR           = 'terraform'
         TF_KEY_PAIR      = 'devops-key-private-account'
-        TF_OPERATOR_IP   = '5.29.18.125/32'
+        TF_OPERATOR_IP   = credentials('tf-operator-cidr')
     }
 
     stages {
@@ -45,7 +45,8 @@ pipeline {
                         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
                         export AWS_DEFAULT_REGION=${AWS_REGION}
                         cd ${TF_DIR} && terraform init -input=false \
-                            -backend-config="profile="
+                            -backend-config="profile=" \
+                            -backend-config="bucket=seyoawe-tf-state-\$(aws sts get-caller-identity --query Account --output text)"
                     """
                 }
             }
@@ -65,7 +66,7 @@ pipeline {
                         export AWS_DEFAULT_REGION=${AWS_REGION}
                         cd ${TF_DIR} && terraform plan -out=tfplan -input=false \
                             -var="jenkins_key_pair=${TF_KEY_PAIR}" \
-                            -var="operator_ip=${TF_OPERATOR_IP}" \
+                            -var="operator_ip=\${TF_OPERATOR_IP}" \
                             -detailed-exitcode || TF_EXIT=\$?
 
                         if [ "\${TF_EXIT:-0}" = "0" ]; then

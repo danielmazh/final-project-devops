@@ -39,7 +39,7 @@ Full DevOps lifecycle implementation around **[SeyoAWE Community](https://github
        ▼              │      ├── Alertmanager                          │
 ┌─────────────┐       │      └── ServiceMonitor → seyoawe-engine       │
 │  DockerHub  │       │                                                │
-│ seyoawe-    │       │  S3: seyoawe-tf-state-632008729195             │
+│ seyoawe-    │       │  S3: seyoawe-tf-state-<account-id>             │
 │ engine/cli  │       │  (Terraform remote state, S3-native lock)      │
 └─────────────┘       └────────────────────────────────────────────────┘
 ```
@@ -101,7 +101,7 @@ aws sts get-caller-identity --profile seyoawe-tf
 
 ```bash
 cd terraform
-terraform init && terraform plan
+terraform init -backend-config="bucket=seyoawe-tf-state-$(aws sts get-caller-identity --query Account --output text)" && terraform plan
 terraform apply   # provisions VPC, EKS, Jenkins EC2 (~15 min)
 cd ..
 
@@ -125,7 +125,8 @@ kubectl get pods -n seyoawe   # seyoawe-engine-0  1/1  Running
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm install monitoring prometheus-community/kube-prometheus-stack \
-  -n monitoring -f monitoring/kube-prometheus-values.yaml
+  -n monitoring -f monitoring/kube-prometheus-values.yaml \
+  --set-string grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
 kubectl apply -f monitoring/servicemonitor-engine.yaml
 ```
 
@@ -136,7 +137,7 @@ kubectl apply -f monitoring/servicemonitor-engine.yaml
 | Service | Command | URL |
 |---------|---------|-----|
 | **Engine API** | `kubectl port-forward svc/seyoawe-engine 8090:8080 -n seyoawe` | `POST http://localhost:8090/api/community/hello-world` |
-| **Grafana** | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | `http://localhost:3000` (admin / seyoawe-grafana) |
+| **Grafana** | `kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring` | `http://localhost:3000` (admin / <grafana-admin-password>) |
 | **Prometheus** | `kubectl port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 -n monitoring` | `http://localhost:9090/targets` |
 | **Jenkins** | Direct access | `http://<JENKINS_IP>:8080` (run `cd terraform && terraform output jenkins_public_ip`) |
 | **SSH to Jenkins** | `ssh ec2-user@<JENKINS_IP> -i ~/.ssh/<your-key>.pem` | — |

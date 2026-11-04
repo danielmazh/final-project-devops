@@ -100,7 +100,7 @@ Stages:
 
 ### 3.6 Jenkins prerequisites
 
-Jenkins EC2 (`44.201.6.188`) needs:
+Jenkins EC2 (`<jenkins-ip>`) needs:
 - `yamllint`: `pip3 install yamllint`
 - `shellcheck`: `dnf install shellcheck`
 - `engine/seyoawe.linux` at `~/seyoawe.linux` on the host

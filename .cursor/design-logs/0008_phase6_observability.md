@@ -130,13 +130,13 @@ kubectl port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 -n moni
 - [x] Grafana accessible at `localhost:3000` via port-forward — HTTP 200
 - [x] **28 pre-built dashboards** (Kubernetes, Nodes, Pods, Namespaces, Alertmanager, etc.)
 - [x] ServiceMonitor `seyoawe-engine` created; Prometheus registers target (shows `down` — engine has no `/metrics` endpoint, expected)
-- [x] Grafana password: `seyoawe-grafana` (set via values)
+- [x] Grafana password: `<grafana-admin-password>` (set via values)
 
 ### Dashboard access
 
 ```bash
 kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
-# Open: http://localhost:3000  |  admin / seyoawe-grafana
+# Open: http://localhost:3000  |  admin / <grafana-admin-password>
 ```
 
 ### Prometheus target note

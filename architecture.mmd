@@ -30,7 +30,7 @@ graph TB
     DOCKER -->|"image pull"| EKS
 
     %% ── Terraform State ─────────────────────────────────────────────
-    TF_STATE["<b>S3 Bucket</b><br/>seyoawe-tf-state-632008729195<br/>Terraform remote state<br/>S3-native lock (no DynamoDB)"]
+    TF_STATE["<b>S3 Bucket</b><br/>seyoawe-tf-state-<account-id><br/>Terraform remote state<br/>S3-native lock (no DynamoDB)"]
 
     %% ── EKS Cluster ─────────────────────────────────────────────────
     subgraph AWS_PRIV ["AWS — Private Subnets (10.0.10.0/24, 10.0.20.0/24)"]
@@ -45,7 +45,7 @@ graph TB
 
             subgraph NS_MON ["Namespace: monitoring"]
                 PROM["<b>Prometheus</b><br/>1 replica · 5Gi PVC<br/>14 scrape targets"]
-                GRAF["<b>Grafana</b><br/>28 pre-built dashboards<br/>admin / seyoawe-grafana"]
+                GRAF["<b>Grafana</b><br/>28 pre-built dashboards<br/>admin / <grafana-admin-password>"]
                 ALERT["<b>Alertmanager</b><br/>1 replica"]
                 SM["<b>ServiceMonitor</b><br/>seyoawe-engine → :8080/metrics"]
             end
